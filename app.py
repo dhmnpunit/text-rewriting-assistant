@@ -24,7 +24,7 @@ SERIF = "'Source Serif 4', Georgia, serif"  # serif heading for the example sect
 DISPLAY = "'Plus Jakarta Sans', Inter, sans-serif"  # heavy display font for big headings (see config.toml)
 PANE_HEIGHT = 270       # text box and rewrite area share this height; long text scrolls inside each pane
 SHORT_TEXT_WORDS = 30   # below this, readability formulas are not meaningful
-EASE, GRADE = "Reading ease (0-100, higher = easier)", "School grade level"
+EASE = "Reading ease (0-100, higher = easier)"
 
 # Demo inputs for "Try an example": each click loads the next one (ids from samples.json).
 _samples = {s["id"]: s["text"] for s in json.load(open("samples.json", encoding="utf-8"))}
@@ -59,6 +59,20 @@ st.markdown(f"""<style>
 .mail-cap{{font-size:.8rem;color:#5E665F;margin-top:10px}}
 .st-key-try_draft button{{border:1px solid {GREEN};color:{GREEN};background:transparent;min-height:40px;padding:0 18px;margin-top:10px}}
 .st-key-try_draft button:hover{{background:#FFFFFF;color:{GREEN_HOVER};border-color:{GREEN_HOVER}}}
+/* Rewrite stats: one compact panel, sage header, aligned rows, small footer. */
+.stats{{background:#FFFFFF;border:1px solid {BORDER};border-radius:10px;overflow:hidden}}
+.st-head{{background:{SAGE};padding:10px 18px;font-size:.82rem;font-weight:600;color:#3D4A41;display:flex;
+  justify-content:space-between;gap:12px;flex-wrap:wrap}}
+.st-stale{{font-weight:500;color:#6A5A2E}}
+.st-row{{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:start;padding:11px 18px;
+  border-top:1px solid #EDF0EC}}
+.st-label{{color:{TEXT};font-size:.95rem}}
+.st-note{{color:{MUTED};font-size:.8rem;margin-top:2px;line-height:1.4}}
+.st-val{{color:{TEXT};font-size:.95rem;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}}
+.st-text{{white-space:normal;display:inline-block;max-width:260px;text-align:right}}
+.st-warn{{color:#9B2C2C;font-weight:500}}
+.st-hint{{padding:10px 18px;border-top:1px solid #EDF0EC;color:{MUTED};font-size:.82rem}}
+.st-foot{{padding:9px 18px;border-top:1px solid {BORDER};background:#FAFBF9;color:{MUTED};font-size:.78rem}}
 
 /* One shared editor: a single crisp 1px border, 12px corners, flat white. */
 .st-key-editor{{background:#FFFFFF;border:1px solid {BORDER};border-radius:12px;gap:0;overflow:hidden}}
@@ -370,41 +384,55 @@ with editor:
     if not os.getenv("GROQ_API_KEY"):
         st.error("GROQ_API_KEY not found. Copy .env.example to .env and paste your key from console.groq.com.")
 
-# --- Rewrite stats: metrics, full table, generation details (collapsed) ---
-last = st.session_state.get("last")
-done = {s: r for s, r in (last or {}).get("results", {}).items() if "text" in r}
-if done:
-    with stats_area, st.expander("Rewrite stats", icon=":material/analytics:"):
-        original = last["text"]
-        st.caption(f"Generated with {last['model']} · prompt {last['prompt']} · temperature {last['temperature']} "
-                   f"· max tokens {last['max_tokens']}")
-        areas = st.tabs(list(done)) if len(done) > 1 else [st.container()]
-        for area, (style, res) in zip(areas, done.items()):
-            with area:
-                result = res["text"]
-                before, after = text_stats(original), text_stats(result)
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Words kept (similarity)", f"{similarity(original, result):.0%}", border=True,
-                          help="Share of words kept in order. Low = heavy rewrite, so check the meaning.")
-                if find_numbers(original):
-                    c2.metric("All numbers kept?", "Yes" if numbers_kept(original, result) else "No — check!",
-                              border=True, help="Every number, date and time must still be in the rewrite.")
-                else:
-                    c2.metric("All numbers kept?", "No numbers in original", border=True)
-                c3.metric("Reading ease", after[EASE], f"{after[EASE] - before[EASE]:+.1f}", border=True,
-                          help="0-100, higher = easier.")
-                c4.metric("Grade level", after[GRADE], f"{after[GRADE] - before[GRADE]:+.1f}",
-                          delta_color="inverse", border=True, help="School grade needed to read it. Lower = easier.")
-                if min(before["Words"], after["Words"]) < SHORT_TEXT_WORDS:
-                    st.caption(f":material/info: The text is short (under {SHORT_TEXT_WORDS} words), "
-                               "so the readability scores are only rough.")
-                st.table({"Original": {k: str(v) for k, v in before.items()},  # str: avoid "13.0000"
-                          "Rewritten": {k: str(v) for k, v in after.items()}})
-                st.caption(f"Generated in {res['seconds']} s. Reading ease and grade level use English "
-                           "formulas, so they are not reliable for mixed-language text such as Hinglish.")
-                if original.strip() != text.strip():
-                    st.caption("Submitted original:")
-                    st.html(doc(html.escape(original)))
+# --- Rewrite stats: one compact panel for the result showing in the editor (collapsed) ---
+# `active` and `res` come from the Rewrite pane above, so the stats always follow the visible tab.
+if last and "text" in res:
+    original, result = last["text"], res["text"]
+    before, after = text_stats(original), text_stats(result)
+
+    def stat_row(label, value, note=""):
+        note_html = f'<div class="st-note">{note}</div>' if note else ""
+        return f'<div class="st-row"><div class="st-label">{label}{note_html}</div><div class="st-val">{value}</div></div>'
+
+    # Plain-English rows: what changed, and what to double-check.
+    sim = similarity(original, result)
+    sim_note = ("The AI rewrote most of it, so read it carefully." if sim < 0.4 else
+                "A mix of your words and new ones." if sim < 0.75 else "Mostly your own words.")
+    rows = [stat_row("Length", f'{before["Words"]} → {after["Words"]} words'),
+            stat_row("Sentences", f'{before["Sentences"]} → {after["Sentences"]}',
+                     f'About {before["Avg words / sentence"]:g} → {after["Avg words / sentence"]:g} words per sentence.'),
+            stat_row("Your words kept", f"{sim:.0%}", sim_note)]
+    if not find_numbers(original):
+        rows.append(stat_row("Numbers", '<span class="st-text">None to check</span>',
+                             "Your text has no numbers, dates or times."))
+    elif numbers_kept(original, result):
+        rows.append(stat_row("Numbers", '<span class="st-text">All kept ✓</span>',
+                             "Every number, date and time is still there."))
+    else:
+        rows.append(stat_row("Numbers", '<span class="st-text st-warn">One changed ✗</span>',
+                             "A number, date or time is different or missing. Check the rewrite."))
+    if min(before["Words"], after["Words"]) >= SHORT_TEXT_WORDS:
+        change = after[EASE] - before[EASE]
+        verdict = "Yes" if change >= 5 else "A bit harder" if change <= -5 else "About the same"
+        rows.append(stat_row("Easier to read?", verdict,
+                             f"Reading-ease score {before[EASE]:g} → {after[EASE]:g} (out of 100, higher is easier)."))
+        hint = ""
+    else:
+        hint = f'<div class="st-hint">"Easier to read?" needs at least {SHORT_TEXT_WORDS} words, so it is skipped here.</div>'
+    stale = ('<span class="st-stale">Based on your last rewrite.</span>' if original != text else "")
+
+    def remember_stats_open():
+        # The heading changes with the style, which Streamlit treats as a new accordion,
+        # so we remember open/closed ourselves to keep it open when you switch tabs.
+        st.session_state.stats_open = bool(st.session_state.get("stats_exp"))
+
+    with stats_area, st.expander(f"{active} · Rewrite stats", icon=":material/analytics:", key="stats_exp",
+                                     expanded=st.session_state.get("stats_open", False), on_change=remember_stats_open):
+        st.html(f"""<div class="stats">
+<div class="st-head"><span>Your text → Rewrite</span>{stale}</div>
+{''.join(rows)}{hint}
+<div class="st-foot">Made with {html.escape(last['model'])}, prompt {html.escape(last['prompt'])}, in {res['seconds']} seconds</div>
+</div>""")
 
 # "Try this example" / "Back to editor": scroll up to the editor and put the cursor in Original.
 if st.session_state.pop("scroll_to_editor", False):
