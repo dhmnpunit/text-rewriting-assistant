@@ -84,15 +84,14 @@ The key is free and needs no card.
 - `numbers_kept()` checks that every number in the input is still in the output. This is our automatic hallucination check.
 - `diff_html()` produces the word-level diff, with `<del>` in red and `<ins>` in green. It escapes HTML so user text can't inject tags, and keeps line breaks so paragraphs stay visible.
 
-**`app.py`** is the UI: one two-panel writing workspace.
-- **Header:** the project name and the heading "Make your writing clearer".
-- **Toolbar:** the four style chips (`st.pills`, pick one or more) and the green **Rewrite** button.
-- **Left panel, Original:** the editable text box with a live word/character count. **Try an example** loads the next demo input from `samples.json` (#2, #1, #5, #3, #8, #7), so the live demo starts in one click.
-- **Right panel, Rewrite:** shows "Your rewrite will appear here." until you rewrite. Then it shows the clean rewrite, with one tab per style if you picked several. The **Show changes** toggle switches to the tracked diff from `diff_html()`, and **Copy rewrite** copies the clean text of the active tab (a little JavaScript button that says "Copied ✓"). Loading and errors (empty box, bad key, rate limit, no internet) appear inside this panel, and the draft on the left is never lost.
-- **Comparison details** (collapsed): the four metric cards (similarity, numbers kept, reading ease, grade level), the full stats table and the generation details (model, prompt, temperature, tokens, seconds). It says "No numbers in original" when there's nothing to check, and warns that readability scores are rough for texts under 30 words.
+**`app.py`** is the UI. The app is branded **ClearDraft**, with "Text Rewriting & Grammar Assistant" underneath. It has one shared editor:
+- **Top row:** the four style chips (`st.pills`, pick one or more).
+- **Left pane, Original:** **Try an example** in the header (loads the next demo input from `samples.json`: #2, #1, #5, #3, #8, #7), the editable text box, and a bottom bar with the word/character count and the green **Rewrite** button.
+- **Right pane, Rewrite:** "Your rewrite will appear here." until you rewrite, then the clean rewrite. With several styles, the header shows one tab per style, always in the same order as the style row. The bottom bar has **Show changes** (switches to the tracked diff from `diff_html()`) and **Copy rewrite** (copies the clean text of the active tab and shows "Copied ✓"). Loading and errors (empty box, bad key, rate limit, no internet) appear in this pane, and the draft on the left is never lost.
+- **Rewrite stats** (collapsed): the four metric cards (similarity, numbers kept, reading ease, grade level), the full stats table and the generation details. It says "No numbers in original" when there's nothing to check, and warns that readability scores are rough under 30 words.
 - **Advanced settings** (collapsed): model, prompt version (v1/v2), temperature and max tokens.
 - Results are stored in `st.session_state`. Streamlit reruns the whole script on every click, so without this the rewrites would vanish as soon as anything is touched.
-- The look (warm-white surfaces, Inter font, deep-green accent) comes from `.streamlit/config.toml`. On a phone, the two panels stack.
+- The look (off-white page, white editor with one thin border and a centre divider, Inter font, deep-green accent) comes from `.streamlit/config.toml` plus a small CSS block in `app.py`. On a phone, Original stacks above Rewrite.
 
 **`evaluate.py`** is for testing.
 - It runs 8 samples × 4 styles × 2 prompts, which is 64 LLM calls (about 3 minutes with the pauses).
@@ -133,7 +132,7 @@ The system message holds the rules and the user message holds only the text, wra
 - **Lesson:** a "safety" instruction can over-trigger. The model refused a harmless rewrite. Testing on tricky inputs found this; writing the prompt alone would not have.
 
 **How to show the improvement:**
-- Live: in **Advanced settings**, switch between v1 and v2 on sample #2 with the Formal style (section 9).
+- Live: in **Advanced settings** (below the editor), switch between v1 and v2 on sample #2 with the Formal style (section 9).
 - In the report: the run 2 results table in section 7, plus the iteration story above.
 
 ---

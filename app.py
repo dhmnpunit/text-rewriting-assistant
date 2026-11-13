@@ -1,6 +1,6 @@
-"""Streamlit UI. Run with: streamlit run app.py
+"""ClearDraft, the Text Rewriting & Grammar Assistant. Run with: streamlit run app.py
 
-A two-panel writing workspace: editable Original on the left, Rewrite on the right.
+One shared editor: style row on top, Original on the left, Rewrite on the right, each with a bottom bar.
 Colours and the Inter font come from .streamlit/config.toml.
 """
 import hashlib
@@ -14,10 +14,10 @@ import streamlit as st
 from rewriter import (MAX_INPUT_CHARS, MODELS, PROMPTS, STYLES, diff_html, find_numbers, numbers_kept, rewrite,
                       similarity, text_stats)
 
-st.set_page_config(page_title="Text Rewriting & Grammar Assistant", page_icon="✍️", layout="wide")
+st.set_page_config(page_title="ClearDraft · Text Rewriting & Grammar Assistant", page_icon="✍️", layout="wide")
 
-ACCENT, BORDER, MUTED = "#1F6B4A", "#E4DFD4", "#6B716C"
-PANEL_HEIGHT = 330      # height of the text box and the rewrite area, so both panels line up
+GREEN, BORDER, TEXT, MUTED = "#166A48", "#DDE4DF", "#202522", "#5F6862"
+PANE_HEIGHT = 340       # the text box and the rewrite area share this height, so the panes line up
 SHORT_TEXT_WORDS = 30   # below this, readability formulas are not meaningful
 EASE, GRADE = "Reading ease (0-100, higher = easier)", "School grade level"
 
@@ -28,22 +28,34 @@ EXAMPLES = [_samples[i] for i in (2, 1, 5, 3, 8, 7)]
 st.markdown(f"""<style>
 [data-testid="stHeader"]{{display:none}}
 [data-testid="stMainBlockContainer"]{{max-width:1152px;padding:0 16px 16px}}
-.topbar{{display:flex;align-items:center;gap:10px;padding:14px 0;border-bottom:1px solid {BORDER};margin-bottom:20px}}
-.topbar .mark{{width:30px;height:30px;border-radius:8px;background:{ACCENT};color:#fff;display:flex;
+.topbar{{display:flex;align-items:center;gap:10px;padding:12px 0;margin-bottom:18px;border-bottom:1px solid {BORDER}}}
+.topbar .mark{{width:32px;height:32px;border-radius:8px;background:{GREEN};color:#fff;display:flex;
   align-items:center;justify-content:center;font-weight:700;font-size:16px}}
-.topbar .name{{font-weight:600;font-size:.98rem}}
-.hero h1{{font-size:1.7rem;margin:0;padding:0;line-height:1.25}}
-.hero p{{margin:4px 0 4px;color:{MUTED}}}
-.st-key-panel_left,.st-key-panel_right{{background:#FFFEFB}}
-.st-key-panel_left textarea{{font-size:1.02rem;line-height:1.7}}
-.panel-label{{font-weight:600;font-size:.95rem;padding:6px 0}}
-.placeholder{{height:{PANEL_HEIGHT}px;display:flex;align-items:center;justify-content:center;color:#8F948F;
-  border:1px dashed {BORDER};border-radius:8px;text-align:center;padding:16px}}
-.doc{{white-space:pre-wrap;line-height:1.7;font-size:1.02rem;padding:2px 4px}}
-.doc del{{background:rgba(196,52,52,.10);color:#9B2C2C;text-decoration:line-through;border-radius:3px;padding:0 2px}}
-.doc ins{{background:rgba(31,107,74,.12);color:inherit;text-decoration:none;border-bottom:2px solid {ACCENT};
+.topbar .name{{font-weight:700;font-size:1.05rem;line-height:1.15;color:{TEXT}}}
+.topbar .sub{{font-size:.8rem;color:{MUTED};line-height:1.2}}
+
+/* One shared editor: a single 1px border, 12px corners, flat white. */
+.st-key-editor{{background:#FFFFFF;border:1px solid {BORDER};border-radius:12px;gap:0;overflow:hidden}}
+.st-key-modes{{padding:10px 16px;border-bottom:1px solid {BORDER}}}
+.st-key-pane_left,.st-key-pane_right{{padding:10px 16px 12px}}
+.st-key-pane_right{{border-left:1px solid {BORDER}}}  /* thin centre divider, same colour as the border */
+@media (max-width:640px){{.st-key-pane_right{{border-left:none;border-top:1px solid {BORDER}}}}}
+.pane-label{{font-weight:600;font-size:.95rem;color:{TEXT};padding:6px 0}}
+
+/* The text box blends into the pane; a green ring shows keyboard focus. */
+.st-key-pane_left [data-testid="stTextAreaRootElement"]{{border-color:transparent !important;background:#FFFFFF}}
+.st-key-pane_left [data-testid="stTextAreaRootElement"]:focus-within{{border-color:{GREEN} !important;
+  box-shadow:0 0 0 1px {GREEN}}}
+.st-key-pane_left textarea{{font-size:1.02rem;line-height:1.7;background:#FFFFFF}}
+button:focus-visible,[role="radio"]:focus-visible,[role="switch"]:focus-visible,summary:focus-visible,
+[data-testid="stExpander"] details summary:focus-visible{{outline:2px solid {GREEN} !important;outline-offset:2px}}
+
+.placeholder{{height:{PANE_HEIGHT - 24}px;display:flex;align-items:center;justify-content:center;color:#8C948F;text-align:center}}
+.doc{{white-space:pre-wrap;line-height:1.7;font-size:1.02rem;color:{TEXT};padding:8px 14px}}
+.doc del{{background:rgba(190,48,48,.10);color:#9B2C2C;text-decoration:line-through;border-radius:3px;padding:0 2px}}
+.doc ins{{background:rgba(22,106,72,.12);color:inherit;text-decoration:none;border-bottom:2px solid {GREEN};
   border-radius:3px 3px 0 0;padding:0 2px}}
-.footer{{text-align:center;color:#8F948F;font-size:.82rem;padding:22px 0 4px;border-top:1px solid {BORDER};margin-top:24px}}
+.footer{{text-align:center;color:#8C948F;font-size:.82rem;padding:20px 0 4px;margin-top:20px;border-top:1px solid {BORDER}}}
 </style>""", unsafe_allow_html=True)
 
 
@@ -56,7 +68,7 @@ def copy_button(text, uid):
     """A real 'Copy rewrite' button: copies the clean text and shows 'Copied' for a moment."""
     return f"""
 <button id="copy-{uid}" style="font:inherit;font-size:.85rem;font-weight:500;border:1px solid {BORDER};
-  background:#fff;color:#1E2320;border-radius:999px;padding:5px 14px;cursor:pointer;white-space:nowrap">
+  background:#fff;color:{TEXT};border-radius:999px;padding:6px 14px;cursor:pointer;white-space:nowrap;outline-color:{GREEN}">
   Copy rewrite</button>
 <textarea id="text-{uid}" hidden>{html.escape(text)}</textarea>
 <script>
@@ -71,7 +83,7 @@ def copy_button(text, uid):
       const t = document.createElement("textarea"); t.value = src.value; document.body.appendChild(t);
       t.select(); document.execCommand("copy"); t.remove();
     }}
-    btn.textContent = "Copied ✓"; btn.style.color = "{ACCENT}"; btn.style.borderColor = "{ACCENT}";
+    btn.textContent = "Copied ✓"; btn.style.color = "{GREEN}"; btn.style.borderColor = "{GREEN}";
     setTimeout(() => {{ btn.textContent = "Copy rewrite"; btn.style.color = ""; btn.style.borderColor = "{BORDER}"; }}, 1500);
   }});
 }})();
@@ -99,16 +111,19 @@ def load_example():
     st.session_state.example_i = i + 1
 
 
+def bar():
+    """A pane's bottom bar: items spread to both ends, vertically centred."""
+    return st.container(horizontal=True, vertical_alignment="center", horizontal_alignment="distribute")
+
+
 # --- Header ---
-st.html(f"""<div class="topbar"><div class="mark">✎</div>
-<div class="name">Text Rewriting &amp; Grammar Assistant</div></div>""")
-st.html("""<div class="hero"><h1>Make your writing clearer</h1>
-<p>Paste your text, pick one or more styles and click Rewrite. Compare the result side by side.</p></div>""")
+st.html("""<div class="topbar"><div class="mark">✎</div>
+<div><div class="name">ClearDraft</div><div class="sub">Text Rewriting &amp; Grammar Assistant</div></div></div>""")
 
 # The editor is drawn first on the page but filled in last, because it needs the values from
 # "Advanced settings", which sit below it. Streamlit containers can be filled in any order.
-editor = st.container()
-details = st.container()
+editor = st.container(key="editor")
+stats_area = st.container()
 
 with st.expander("Advanced settings", icon=":material/tune:"):
     c1, c2 = st.columns(2, gap="large")
@@ -122,32 +137,32 @@ with st.expander("Advanced settings", icon=":material/tune:"):
 st.html('<div class="footer">IILM University · CSE2591 · Group 3</div>')
 
 with editor:
-    # Toolbar: the four styles and the Rewrite button.
-    with st.container(horizontal=True, vertical_alignment="center", horizontal_alignment="distribute"):
-        styles = st.pills("Rewrite styles", list(STYLES), selection_mode="multi", key="styles",
+    # Top row of the editor: the four rewrite styles.
+    with st.container(key="modes"):
+        picked = st.pills("Rewrite styles", list(STYLES), selection_mode="multi", key="styles",
                           default=["Grammar Fix", "Formal"], label_visibility="collapsed")
-        go = st.button("Rewrite", type="primary", icon=":material/auto_fix_high:", key="go")
+    styles = [s for s in STYLES if s in (picked or [])]  # always in picker order, whatever the click order
 
-    left, right = st.columns(2, gap="medium")
+    left, right = st.columns(2, gap=None)
 
-    with left, st.container(border=True, key="panel_left"):
-        with st.container(horizontal=True, vertical_alignment="center", horizontal_alignment="distribute"):
-            st.html('<div class="panel-label">Original</div>', width="content")
+    with left, st.container(key="pane_left"):
+        with bar():
+            st.html('<div class="pane-label">Original</div>', width="content")
             st.button("Try an example", on_click=load_example, type="tertiary", icon=":material/lightbulb:")
-        text = st.text_area("Original", key="draft", height=PANEL_HEIGHT, label_visibility="collapsed",
+        text = st.text_area("Original", key="draft", height=PANE_HEIGHT, label_visibility="collapsed",
                             placeholder="Paste or type the text you want to improve...")
-        words = len(text.split())
-        st.caption(f"{words} word{'' if words == 1 else 's'} · {len(text)} / {MAX_INPUT_CHARS} characters")
+        with bar():
+            words = len(text.split())
+            st.caption(f"{words} word{'' if words == 1 else 's'} · {len(text)} / {MAX_INPUT_CHARS} characters")
+            go = st.button("Rewrite", type="primary", icon=":material/auto_fix_high:", key="go")
 
-    with right, st.container(border=True, key="panel_right"):
-        st.html('<div class="panel-label">Rewrite</div>')
-
+    with right, st.container(key="pane_right"):
         # Streamlit reruns this whole script on every click, so the last result is kept in session_state.
         if go:
             if not text.strip():
                 st.session_state.last = {"error": "Please enter some text first, or click **Try an example**."}
             elif not styles:
-                st.session_state.last = {"error": "Pick at least one rewrite style above."}
+                st.session_state.last = {"error": "Pick at least one rewrite style at the top of the editor."}
             else:
                 results = {}
                 for style in styles:
@@ -160,40 +175,58 @@ with editor:
                     results[style]["seconds"] = round(time.time() - start, 1)
                 st.session_state.last = {"text": text, "results": results, "model": model, "prompt": prompt,
                                          "temperature": temperature, "max_tokens": max_tokens}
+                st.session_state.active = styles[0]
 
         last = st.session_state.get("last")
-        if not last:
-            st.html('<div class="placeholder">Your rewrite will appear here.</div>')
-        elif "error" in last:
-            st.error(last["error"], icon=":material/error:")
-            st.caption("Your draft is kept.")
-        else:
-            if last["text"] != text:
-                st.caption(":material/info: This is the rewrite of your previous text. Click **Rewrite** to update it.")
-            results = last["results"]
-            areas = st.tabs(list(results)) if len(results) > 1 else [st.container()]
-            for area, (style, res) in zip(areas, results.items()):
-                with area:
-                    if "error" in res:
-                        st.error(f"{style}: {res['error']}", icon=":material/error:")
-                        st.caption("Your draft is kept. Try again.")
-                        continue
-                    with st.container(horizontal=True, vertical_alignment="center",
-                                      horizontal_alignment="distribute"):
-                        show_changes = st.toggle("Show changes", key=f"changes_{style}",
-                                                 help="Red = removed, green = added")
-                        uid = hashlib.md5(f"{style}{res['text']}".encode()).hexdigest()[:10]
-                        st.html(copy_button(res["text"], uid), width="content", unsafe_allow_javascript=True)
-                    with st.container(height=PANEL_HEIGHT - (90 if len(results) > 1 else 44), border=False):
-                        # diff_html and html.escape both escape the text, so nothing in it can inject HTML
-                        st.html(doc(diff_html(last["text"], res["text"]) if show_changes
-                                    else html.escape(res["text"])))
+        results = (last or {}).get("results", {})
 
-# --- Comparison details: metrics, full table, generation details (collapsed) ---
+        # Header: "Rewrite" plus one tab per generated style, aligned with the "Original" header.
+        with bar():
+            st.html('<div class="pane-label">Rewrite</div>', width="content")
+            if len(results) > 1:
+                if st.session_state.get("active") not in results:
+                    st.session_state.active = next(iter(results))
+                st.segmented_control("Result tabs", list(results), key="active", label_visibility="collapsed",
+                                     required=True)
+        active = st.session_state.get("active") if len(results) > 1 else next(iter(results), None)
+        res = results.get(active, {})
+
+        with st.container(height=PANE_HEIGHT, border=False):
+            if not last:
+                st.html('<div class="placeholder">Your rewrite will appear here.</div>')
+            elif "error" in last:
+                st.error(last["error"], icon=":material/error:")
+                st.caption("Your draft is kept.")
+            elif "error" in res:
+                st.error(f"{active}: {res['error']}", icon=":material/error:")
+                st.caption("Your draft is kept. Try again.")
+            else:
+                if last["text"] != text:
+                    st.caption(":material/info: This is the rewrite of your previous text. "
+                               "Click **Rewrite** to update it.")
+                show = st.session_state.get(f"changes_{active}", False)
+                # diff_html and html.escape both escape the text, so nothing in it can inject HTML
+                st.html(doc(diff_html(last["text"], res["text"]) if show else html.escape(res["text"])))
+
+        # Bottom bar: Show changes + Copy rewrite (disabled until there is a rewrite).
+        with bar():
+            ready = "text" in res
+            st.toggle("Show changes", key=f"changes_{active}" if ready else "changes_none", disabled=not ready,
+                      help="Red = removed, green = added")
+            if ready:
+                uid = hashlib.md5(f"{active}{res['text']}".encode()).hexdigest()[:10]
+                st.html(copy_button(res["text"], uid), width="content", unsafe_allow_javascript=True)
+            else:
+                st.button("Copy rewrite", disabled=True, key="copy_disabled")
+
+    if not os.getenv("GROQ_API_KEY"):
+        st.error("GROQ_API_KEY not found. Copy .env.example to .env and paste your key from console.groq.com.")
+
+# --- Rewrite stats: metrics, full table, generation details (collapsed) ---
 last = st.session_state.get("last")
 done = {s: r for s, r in (last or {}).get("results", {}).items() if "text" in r}
 if done:
-    with details, st.expander("Comparison details", icon=":material/analytics:"):
+    with stats_area, st.expander("Rewrite stats", icon=":material/analytics:"):
         original = last["text"]
         st.caption(f"Generated with {last['model']} · prompt {last['prompt']} · temperature {last['temperature']} "
                    f"· max tokens {last['max_tokens']}")
@@ -224,7 +257,3 @@ if done:
                 if original.strip() != text.strip():
                     st.caption("Submitted original:")
                     st.html(doc(html.escape(original)))
-
-if not os.getenv("GROQ_API_KEY"):
-    with editor:
-        st.error("GROQ_API_KEY not found. Copy .env.example to .env and paste your key from console.groq.com.")

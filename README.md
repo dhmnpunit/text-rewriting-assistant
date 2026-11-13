@@ -1,4 +1,4 @@
-# Text Rewriting and Grammar Assistant
+# ClearDraft: Text Rewriting and Grammar Assistant
 
 CSE2591 Generative AI for Development, Mini Project, Group 3
 Sushri Sangita Swain (2481027) · Punit (2481019) · Nisha (2481159)
