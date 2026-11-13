@@ -1,0 +1,19 @@
+# Look and feel: warm-white writing workspace, Inter font, one deep-green accent.
+[theme]
+base = "light"
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+headingFont = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+headingFontWeights = [700, 600, 600, 600, 600, 600]
+baseFontSize = 15
+baseRadius = "10px"
+buttonRadius = "full"
+primaryColor = "#1F6B4A"
+backgroundColor = "#F7F5F0"
+secondaryBackgroundColor = "#FFFEFB"
+textColor = "#1E2320"
+borderColor = "#E4DFD4"
+linkColor = "#1F6B4A"
+showWidgetBorder = true
+
+[client]
+toolbarMode = "minimal"

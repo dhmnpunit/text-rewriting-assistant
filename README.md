@@ -32,6 +32,7 @@ python evaluate.py --out new_results.csv   # write elsewhere; results.csv is nev
 |---|---|
 | `rewriter.py` | Prompts, LLM call, comparison metrics (the core) |
 | `app.py` | Streamlit web interface |
+| `.streamlit/config.toml` | UI theme: warm-white surfaces, Inter font, deep-green accent |
 | `evaluate.py` | Batch testing for the report (all 4 styles × 2 prompts; saves each row as it goes, retries on rate limits) |
 | `samples.json` | 8 test inputs, including tricky ones |
 | `test_rewriter.py` | Offline self-checks |

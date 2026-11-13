@@ -87,12 +87,15 @@ def similarity(a, b):
     return round(difflib.SequenceMatcher(None, a.split(), b.split()).ratio(), 2)
 
 
+def find_numbers(text):
+    """All numbers in the text, e.g. {"14", "3:30", "25000"}. Thousands commas are ignored."""
+    text = re.sub(r"(?<=\d),(?=\d{3})", "", text)  # 25,000 -> 25000
+    return set(re.findall(r"\d+(?:[.:]\d+)*", text))
+
+
 def numbers_kept(original, rewritten):
     """True if every number in the original also appears in the rewrite (a simple hallucination check)."""
-    def numbers(s):
-        s = re.sub(r"(?<=\d),(?=\d{3})", "", s)  # 25,000 -> 25000
-        return set(re.findall(r"\d+(?:[.:]\d+)*", s))
-    return numbers(original) <= numbers(rewritten)
+    return find_numbers(original) <= find_numbers(rewritten)
 
 
 def diff_html(original, rewritten):
