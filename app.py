@@ -64,14 +64,22 @@ st.markdown(f"""<style>
 .st-head{{background:{SAGE};padding:10px 18px;font-size:.82rem;font-weight:600;color:#3D4A41;display:flex;
   justify-content:space-between;gap:12px;flex-wrap:wrap}}
 .st-stale{{font-weight:500;color:#6A5A2E}}
-.st-row{{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:start;padding:11px 18px;
-  border-top:1px solid #EDF0EC}}
-.st-label{{color:{TEXT};font-size:.95rem}}
-.st-note{{color:{MUTED};font-size:.8rem;margin-top:2px;line-height:1.4}}
-.st-val{{color:{TEXT};font-size:.95rem;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}}
-.st-text{{white-space:normal;display:inline-block;max-width:260px;text-align:right}}
-.st-warn{{color:#9B2C2C;font-weight:500}}
-.st-hint{{padding:10px 18px;border-top:1px solid #EDF0EC;color:{MUTED};font-size:.82rem}}
+.st-tiles{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:16px 18px 6px}}
+@media (max-width:640px){{.st-tiles{{grid-template-columns:1fr}}}}
+.st-tile{{border:1px solid #E6EAE5;border-radius:10px;padding:12px 14px}}
+.t-lbl{{font-size:.78rem;font-weight:600;color:{MUTED}}}
+.t-val{{font-size:1.35rem;font-weight:600;color:{TEXT};margin-top:2px;font-variant-numeric:tabular-nums}}
+.t-val.ok{{color:{GREEN}}} .t-val.warn{{color:#9B2C2C}}
+.t-bar{{height:6px;background:#EEF2EE;border-radius:99px;margin:8px 0 2px;overflow:hidden}}
+.t-bar span{{display:block;height:100%;background:{GREEN};border-radius:99px}}
+.t-note{{font-size:.8rem;color:{MUTED};margin-top:4px;line-height:1.4}}
+.t-note b{{color:{TEXT};font-weight:600}}
+.st-table{{width:calc(100% - 36px);margin:10px 18px 14px;border-collapse:collapse;font-size:.9rem}}
+.st-table th{{text-align:left;font-size:.75rem;font-weight:600;color:{MUTED};padding:8px 10px;border-bottom:1px solid {BORDER}}}
+.st-table td{{padding:9px 10px;border-bottom:1px solid #EDF0EC;color:{TEXT};font-variant-numeric:tabular-nums}}
+.st-table tr:last-child td{{border-bottom:none}}
+.st-table th:not(:first-child),.st-table td:not(:first-child){{text-align:right}}
+.st-table td.chg{{color:{MUTED}}}
 .st-foot{{padding:9px 18px;border-top:1px solid {BORDER};background:#FAFBF9;color:{MUTED};font-size:.78rem}}
 
 /* One shared editor: a single crisp 1px border, 12px corners, flat white. */
@@ -390,35 +398,43 @@ if last and "text" in res:
     original, result = last["text"], res["text"]
     before, after = text_stats(original), text_stats(result)
 
-    def stat_row(label, value, note=""):
-        note_html = f'<div class="st-note">{note}</div>' if note else ""
-        return f'<div class="st-row"><div class="st-label">{label}{note_html}</div><div class="st-val">{value}</div></div>'
+    def fmt(x):
+        return f"{x:g}"
 
-    # Plain-English rows: what changed, and what to double-check.
+    def change(a, b):
+        d = round(b - a, 1)
+        return "0" if d == 0 else f"{d:+g}"
+
+    # Summary tiles: how much wording was kept, whether numbers survived, readability.
     sim = similarity(original, result)
     sim_note = ("The AI rewrote most of it, so read it carefully." if sim < 0.4 else
                 "A mix of your words and new ones." if sim < 0.75 else "Mostly your own words.")
-    rows = [stat_row("Length", f'{before["Words"]} → {after["Words"]} words'),
-            stat_row("Sentences", f'{before["Sentences"]} → {after["Sentences"]}',
-                     f'About {before["Avg words / sentence"]:g} → {after["Avg words / sentence"]:g} words per sentence.'),
-            stat_row("Your words kept", f"{sim:.0%}", sim_note)]
     if not find_numbers(original):
-        rows.append(stat_row("Numbers", '<span class="st-text">None to check</span>',
-                             "Your text has no numbers, dates or times."))
+        num_val, num_note, num_cls = "None to check", "Your text has no numbers, dates or times.", ""
     elif numbers_kept(original, result):
-        rows.append(stat_row("Numbers", '<span class="st-text">All kept ✓</span>',
-                             "Every number, date and time is still there."))
+        num_val, num_note, num_cls = "All kept ✓", "Every number, date and time is still there.", " ok"
     else:
-        rows.append(stat_row("Numbers", '<span class="st-text st-warn">One changed ✗</span>',
-                             "A number, date or time is different or missing. Check the rewrite."))
-    if min(before["Words"], after["Words"]) >= SHORT_TEXT_WORDS:
-        change = after[EASE] - before[EASE]
-        verdict = "Yes" if change >= 5 else "A bit harder" if change <= -5 else "About the same"
-        rows.append(stat_row("Easier to read?", verdict,
-                             f"Reading-ease score {before[EASE]:g} → {after[EASE]:g} (out of 100, higher is easier)."))
-        hint = ""
-    else:
-        hint = f'<div class="st-hint">"Easier to read?" needs at least {SHORT_TEXT_WORDS} words, so it is skipped here.</div>'
+        num_val, num_note, num_cls = "One changed ✗", "A number, date or time is different. Check it.", " warn"
+    d = after[EASE] - before[EASE]
+    ease_word = "Easier" if d >= 5 else "Harder" if d <= -5 else "About the same"
+    short = min(before["Words"], after["Words"]) < SHORT_TEXT_WORDS
+    ease_note = ("Rough estimate: the text is under 30 words." if short else "Reading-ease score, out of 100. Higher is easier.")
+    tiles = f"""<div class="st-tiles">
+<div class="st-tile"><div class="t-lbl">Your words kept</div><div class="t-val">{sim:.0%}</div>
+  <div class="t-bar"><span style="width:{sim * 100:.0f}%"></span></div><div class="t-note">{sim_note}</div></div>
+<div class="st-tile"><div class="t-lbl">Numbers</div><div class="t-val{num_cls}">{num_val}</div><div class="t-note">{num_note}</div></div>
+<div class="st-tile"><div class="t-lbl">Readability</div><div class="t-val">{fmt(before[EASE])} → {fmt(after[EASE])}</div>
+  <div class="t-note"><b>{ease_word}.</b> {ease_note}</div></div>
+</div>"""
+
+    # Comparison table: Your text | Rewrite | Change.
+    measures = [("Words", before["Words"], after["Words"]),
+                ("Sentences", before["Sentences"], after["Sentences"]),
+                ("Words per sentence", before["Avg words / sentence"], after["Avg words / sentence"]),
+                ("Reading ease (0–100)", before[EASE], after[EASE])]
+    table = ('<table class="st-table"><thead><tr><th>Measure</th><th>Your text</th><th>Rewrite</th><th>Change</th></tr></thead><tbody>'
+             + "".join(f"<tr><td>{m}</td><td>{fmt(x)}</td><td>{fmt(y)}</td><td class='chg'>{change(x, y)}</td></tr>"
+                       for m, x, y in measures) + "</tbody></table>")
     stale = ('<span class="st-stale">Based on your last rewrite.</span>' if original != text else "")
 
     def remember_stats_open():
@@ -429,8 +445,8 @@ if last and "text" in res:
     with stats_area, st.expander(f"{active} · Rewrite stats", icon=":material/analytics:", key="stats_exp",
                                      expanded=st.session_state.get("stats_open", False), on_change=remember_stats_open):
         st.html(f"""<div class="stats">
-<div class="st-head"><span>Your text → Rewrite</span>{stale}</div>
-{''.join(rows)}{hint}
+<div class="st-head"><span>Your text → {html.escape(active)} rewrite</span>{stale}</div>
+{tiles}{table}
 <div class="st-foot">Made with {html.escape(last['model'])}, prompt {html.escape(last['prompt'])}, in {res['seconds']} seconds</div>
 </div>""")
 
