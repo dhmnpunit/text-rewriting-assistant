@@ -21,7 +21,9 @@ cp .env.example .env               # then paste your free key from console.groq.
 ```bash
 streamlit run app.py      # the app, opens in the browser
 python test_rewriter.py   # offline checks, no API key needed
-python evaluate.py        # tests v1 vs v2 prompts on samples.json, writes results.csv
+python evaluate.py        # tests v1 vs v2 prompts on samples.json (64 calls), writes results.csv
+python evaluate.py --out new_results.csv   # write elsewhere; results.csv is never overwritten
+                                           # once its meaning_ok column is filled (use --force to override)
 ```
 
 ## Files
@@ -30,7 +32,7 @@ python evaluate.py        # tests v1 vs v2 prompts on samples.json, writes resul
 |---|---|
 | `rewriter.py` | Prompts, LLM call, comparison metrics (the core) |
 | `app.py` | Streamlit web interface |
-| `evaluate.py` | Batch testing for the report |
+| `evaluate.py` | Batch testing for the report (all 4 styles × 2 prompts; saves each row as it goes, retries on rate limits) |
 | `samples.json` | 8 test inputs, including tricky ones |
 | `test_rewriter.py` | Offline self-checks |
 | `results.csv` | Final test results (prompt v1 vs v2) |

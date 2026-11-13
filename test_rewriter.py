@@ -4,6 +4,9 @@ from rewriter import PROMPT_V2, STYLES, diff_html, numbers_kept, rewrite, simila
 # diff marks removed/added words and escapes HTML
 assert diff_html("i has a pen", "I have a pen") == "<del>i has</del> <ins>I have</ins> a pen"
 assert "&lt;b&gt;" in diff_html("<b>", "x")
+assert diff_html("one\ntwo", "one\ntwo") == "one<br>two"          # line breaks survive
+assert diff_html("a\n\nb", "a\n\nb").count("<br>") == 2           # paragraphs survive
+assert diff_html("one two", "one\ntwo") == "one <ins><br></ins> two"  # added line break is shown
 
 # similarity: identical = 1, nothing shared = 0
 assert similarity("a b c", "a b c") == 1.0

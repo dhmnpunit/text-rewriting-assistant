@@ -29,7 +29,7 @@ You paste text and pick styles. The app sends your text and a style prompt to an
 | 5 | Write the offline tests (`test_rewriter.py`) | ✅ done |
 | 6 | Write the test set and evaluation script | ✅ done |
 | 7 | **Get a Groq API key and put it in `.env`** | ⬜ you |
-| 8 | **Run `python evaluate.py` and fill the `meaning_ok` column in `results.csv`** | ⬜ you |
+| 8 | **Re-run `python evaluate.py` (now 4 styles, 64 calls) and fill the `meaning_ok` column in `results.csv`** | ⬜ you |
 | 9 | **Take screenshots of the app (each style plus one error case)** | ⬜ you |
 | 10 | **Write the report (5–8 pages, section 11 below)** | ⬜ you |
 | 11 | **Make the slides (6 parts, section 9 below)** | ⬜ you |
@@ -81,19 +81,23 @@ The key is free and needs no card.
 - `text_stats()` returns word count, sentence count, reading ease and grade level.
 - `similarity()` returns the share of words kept in the same order, from 0 to 1. It uses `difflib.SequenceMatcher`.
 - `numbers_kept()` checks that every number in the input is still in the output. This is our automatic hallucination check.
-- `diff_html()` produces the word-level diff, with `<del>` in red and `<ins>` in green. It escapes HTML so user text can't inject tags.
+- `diff_html()` produces the word-level diff, with `<del>` in red and `<ins>` in green. It escapes HTML so user text can't inject tags, and keeps line breaks so paragraphs stay visible.
 
 **`app.py`** is the UI.
 - The sidebar holds the model, prompt version, temperature and max tokens.
 - The text box and style picker are the input.
 - There is one tab per style, each showing the original and rewrite, the changes, and the comparison table.
-- Errors (bad key, rate limit, empty text) show as a red message and the app doesn't crash.
+- Results are stored in `st.session_state`. Streamlit reruns the whole script on every click or slider move, so without this the rewrites would vanish as soon as a setting is touched. If the text is edited after rewriting, a note says the results belong to the previous text, and the settings used are shown above the tabs.
+- Text is shown exactly as typed (`st.html` with escaping), so characters like `*`, `#` and `_` are not turned into Markdown formatting.
+- Errors (bad key, rate limit, empty text) show as a red message in that style's tab and the app doesn't crash.
 
 **`evaluate.py`** is for testing.
-- It runs 8 samples × 3 styles × 2 prompts, which is 48 LLM calls.
-- It saves everything to `results.csv` and prints a summary table for the report.
+- It runs 8 samples × 4 styles × 2 prompts, which is 64 LLM calls (about 3 minutes with the pauses).
+- It saves every row to `results.csv` and prints two tables for the report: one per prompt, and one per style and prompt.
+- Each row is written as soon as it arrives (to `results.csv.partial`), so a crash loses nothing. A failed call is retried up to 4 times, waiting 5, 10 and 20 seconds.
+- It refuses to overwrite a `results.csv` whose `meaning_ok` column you've started filling. Use `python evaluate.py --out new_results.csv` to write a separate file, or `--force` to overwrite anyway.
 
-**`test_rewriter.py`** checks the diff, similarity, numbers check, stats and input validation. It needs no API key.
+**`test_rewriter.py`** checks the diff (including line breaks), similarity, numbers check, stats and input validation. It needs no API key.
 
 **What LangChain does here:** `prompt | llm | parser` is LCEL (LangChain Expression Language). The `|` operator chains steps so each one's output feeds the next. Benefit: swapping Groq for OpenAI or Ollama means changing one line (`ChatGroq` becomes `ChatOllama`).
 
@@ -161,10 +165,12 @@ Why Groq: it's free, very fast (it runs on custom LPU chips), and serves open-we
    - numbers kept (yes/no)
    - similarity (0 to 1)
    - length ratio (output words ÷ input words; much above 1 means content was added)
-   - change in reading ease
+   - change in reading ease (in the per-style table, sample #7 is left out because the formula only works for English)
 4. **Manual check:** a human reads each output and fills `meaning_ok` in `results.csv`. LLM output can't be fully checked by code. The slides ask you to check AI answers yourself.
 
 **Our results** (run 2, model gpt-oss-120b, temperature 0.3, 8 samples × 3 styles = 24 runs per prompt):
+
+> ⚠️ This table is from the run made before Concise was added to `evaluate.py`. After you re-run it (step 8), replace this table and the numbers below with the new output (32 runs per prompt), and paste the new per-style table too.
 
 | Prompt | Format problems | Numbers kept | Avg similarity | Avg length ratio | Avg reading ease change |
 |---|---|---|---|---|---|
@@ -190,8 +196,8 @@ Why Groq: it's free, very fast (it runs on custom LPU chips), and serves open-we
 - Needs internet and a Groq key, and the free tier has rate limits.
 - Mixed-language (Hinglish) input gives uneven results.
 - The 5000-character limit means no long documents.
-- No count of grammar errors fixed. Reading-ease formulas are rough and designed for English.
-- The diff view ignores line breaks.
+- No count of grammar errors fixed. Reading-ease formulas are rough and designed for English (the app says so under the table).
+- Averaging reading ease across styles hides what each style does (Formal lowers it, Simple raises it), so the per-style table is the fair comparison.
 
 **Future scope:**
 - An Ollama local model for offline use (one line in LangChain).

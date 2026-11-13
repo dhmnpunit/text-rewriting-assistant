@@ -97,15 +97,20 @@ def numbers_kept(original, rewritten):
 
 def diff_html(original, rewritten):
     """Word-level diff as HTML: removed words in red <del>, added words in green <ins>."""
-    # ponytail: splits on whitespace, so line breaks are not shown in the diff view
-    a, b = original.split(), rewritten.split()
+    # Line breaks are kept as their own tokens so paragraphs survive in the diff view.
+    tokens = lambda s: re.findall(r"[^\S\n]*(\S+|\n)", s)
+    a, b = tokens(original), tokens(rewritten)
+
+    def join(words):
+        return " ".join(html.escape(w) for w in words).replace(" \n ", "<br>").replace("\n", "<br>")
+
     parts = []
     for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b).get_opcodes():
         if op == "equal":
-            parts.append(html.escape(" ".join(a[i1:i2])))
+            parts.append(join(a[i1:i2]))
             continue
         if i2 > i1:
-            parts.append(f"<del>{html.escape(' '.join(a[i1:i2]))}</del>")
+            parts.append(f"<del>{join(a[i1:i2])}</del>")
         if j2 > j1:
-            parts.append(f"<ins>{html.escape(' '.join(b[j1:j2]))}</ins>")
-    return " ".join(parts)
+            parts.append(f"<ins>{join(b[j1:j2])}</ins>")
+    return " ".join(parts).replace(" <br> ", "<br>")
