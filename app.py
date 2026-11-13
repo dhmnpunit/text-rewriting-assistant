@@ -3,6 +3,7 @@
 One shared editor: style row on top, Original on the left, Rewrite on the right, each with a bottom bar.
 Colours and the Inter font come from .streamlit/config.toml.
 """
+import csv
 import difflib
 import hashlib
 import html
@@ -18,7 +19,9 @@ from rewriter import (MAX_INPUT_CHARS, MODELS, PROMPTS, STYLES, diff_html, find_
 st.set_page_config(page_title="ClearDraft · Text Rewriting & Grammar Assistant", page_icon="✍️", layout="wide")
 
 GREEN, GREEN_HOVER, BORDER, TEXT, MUTED = "#166A48", "#0F563A", "#D8E1DB", "#202522", "#5F6862"
-PALE = "#EAF3EC"  # pale green for alternating lower-page bands
+IVORY, SAGE = "#FBF6EC", "#E3ECE2"  # warm example section: ivory background, sage example panel
+SERIF = "'Source Serif 4', Georgia, serif"  # serif heading for the example section only
+DISPLAY = "'Plus Jakarta Sans', Inter, sans-serif"  # heavy display font for big headings (see config.toml)
 PANE_HEIGHT = 270       # text box and rewrite area share this height; long text scrolls inside each pane
 SHORT_TEXT_WORDS = 30   # below this, readability formulas are not meaningful
 EASE, GRADE = "Reading ease (0-100, higher = easier)", "School grade level"
@@ -28,49 +31,34 @@ _samples = {s["id"]: s["text"] for s in json.load(open("samples.json", encoding=
 EXAMPLES = [_samples[i] for i in (2, 1, 5, 3, 8, 7)]
 
 st.markdown(f"""<style>
+@import url("https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,600&display=swap");
 [data-testid="stHeader"]{{display:none}}
 [data-testid="stMainBlockContainer"]{{max-width:1168px;padding:0 24px 0}}  /* 1,120px content + 24px gutters */
 @media (max-width:640px){{[data-testid="stMainBlockContainer"]{{padding:0 16px 0}}}}
 
-/* Lower page: full-width bands (the background bleeds to the screen edges, the content keeps the editor's width). */
-.st-key-lower{{gap:0;margin-top:40px}}
-.st-key-sec_how,.st-key-sec_diff,.st-key-sec_faq,.st-key-sec_end{{padding:56px 0}}
-@media (max-width:640px){{.st-key-sec_how,.st-key-sec_diff,.st-key-sec_faq,.st-key-sec_end{{padding:32px 0}}}}
-/* A second shadow, shifted up 1px, draws the thin divider line across the full screen width too. */
-.st-key-sec_how,.st-key-sec_faq{{background:{PALE};box-shadow:0 0 0 100vmax {PALE},0 -1px 0 100vmax {BORDER};
-  clip-path:inset(-1px -100vmax 0)}}
-.st-key-sec_diff,.st-key-sec_end{{background:#FFFFFF;box-shadow:0 0 0 100vmax #FFFFFF,0 -1px 0 100vmax {BORDER};
-  clip-path:inset(-1px -100vmax 0)}}
-.sec-h{{font-size:1.75rem;font-weight:700;letter-spacing:-.01em;color:{TEXT};margin:0 0 8px;line-height:1.25}}
-.sec-p{{color:{MUTED};margin:0;font-size:1rem;line-height:1.6}}
-.center{{text-align:center}}
-.st-key-sec_how span[role="img"]{{font-size:30px !important;color:{GREEN};background:{PALE};border-radius:10px;
-  padding:7px;line-height:1}}
-.step-t{{font-weight:600;font-size:1.05rem;color:{TEXT};margin:10px 0 4px}}
-.step-p{{color:{MUTED};margin:0;line-height:1.55}}
-.st-key-how_1,.st-key-how_2,.st-key-how_3{{background:#FFFFFF;border:1px solid {BORDER};border-radius:12px;padding:22px}}
-.style-row{{margin-top:18px;line-height:1.6;color:{TEXT}}}
-.style-row b{{color:{GREEN}}}
-/* Before | After preview: the main visual of the lower page. */
-.ba{{border:1px solid {BORDER};border-radius:12px;overflow:hidden;background:#FFFFFF;display:grid;grid-template-columns:1fr 1fr}}
-.ba > div{{padding:18px 20px}}
-.ba > div + div{{border-left:1px solid {BORDER}}}
-.ba .tag{{font-size:.75rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:{MUTED};margin-bottom:8px}}
-.ba .txt{{line-height:1.7;color:{TEXT}}}
-.ba del{{background:rgba(190,48,48,.10);color:#9B2C2C;text-decoration:line-through;border-radius:3px;padding:0 2px}}
-.ba ins{{background:rgba(22,106,72,.12);color:inherit;text-decoration:none;border-bottom:2px solid {GREEN};padding:0 2px}}
-.ba-cap{{font-size:.82rem;color:{MUTED};margin-top:8px}}
-@media (max-width:640px){{.ba{{grid-template-columns:1fr}} .ba > div + div{{border-left:none;border-top:1px solid {BORDER}}}}}
-.st-key-try_sample button,.st-key-back_editor button{{border:1px solid {GREEN};color:{GREEN};background:#FFFFFF;min-height:40px;padding:0 18px}}
-.st-key-try_sample button:hover,.st-key-back_editor button:hover{{background:{PALE};color:{GREEN_HOVER};border-color:{GREEN_HOVER}}}
-.st-key-sec_faq [data-testid="stExpander"] details{{background:#FFFFFF;border-color:{BORDER}}}
-.st-key-sec_faq [data-testid="stExpander"] summary{{padding-top:12px;padding-bottom:12px;font-weight:500}}
-.st-key-end_band{{background:{PALE};border:1px solid {BORDER};border-radius:12px;padding:32px 24px}}
-.topbar{{display:flex;align-items:center;gap:10px;padding:12px 0;margin-bottom:8px;border-bottom:1px solid {BORDER}}}
-.topbar .mark{{width:32px;height:32px;border-radius:8px;background:{GREEN};color:#fff;display:flex;
-  align-items:center;justify-content:center;font-weight:700;font-size:16px}}
-.topbar .name{{font-weight:700;font-size:1.05rem;line-height:1.15;color:{TEXT}}}
-.topbar .sub{{font-size:.8rem;color:{MUTED};line-height:1.2}}
+/* Header: ClearDraft and its subtitle grouped on the left. */
+.topbar{{display:flex;align-items:center;gap:11px;padding:16px 0 18px}}
+.topbar .mark{{width:34px;height:34px;border-radius:9px;background:{GREEN};color:#fff;display:flex;
+  align-items:center;justify-content:center;font-size:16px;flex:none}}
+.topbar .name{{font-family:{DISPLAY};font-weight:800;font-size:1.25rem;letter-spacing:-.02em;color:{TEXT};line-height:1.1}}
+.topbar .sub{{font-size:.82rem;color:{MUTED};line-height:1.3}}
+
+/* The one example section: warm ivory, serif heading, soft sage example panel. */
+.st-key-email{{background:{IVORY};border:1px solid #EADFCB;border-radius:12px;padding:36px 36px;margin:20px 0 28px}}
+@media (max-width:640px){{.st-key-email{{padding:22px 18px}}}}
+.email-h{{font-family:{SERIF};font-weight:600;font-size:2.1rem;line-height:1.15;letter-spacing:-.01em;color:#2A2622;margin:0}}
+.email-p{{margin:14px 0 4px;font-size:1.05rem;line-height:1.65;color:#4E4840}}
+@media (max-width:640px){{.email-h{{font-size:1.65rem}}}}
+.st-key-email_panel{{background:{SAGE};border-radius:12px;padding:18px 20px 16px}}
+.mail{{background:#FFFFFF;border-radius:10px;padding:18px 20px;box-shadow:0 1px 2px rgba(40,50,40,.06)}}
+.mail .lbl{{font-size:.8rem;font-weight:600;color:{MUTED};margin-bottom:6px}}
+.mail .draft{{color:#6E746F;line-height:1.65;font-size:.98rem}}
+.mail hr{{border:none;border-top:1px solid #E6E9E4;margin:14px 0}}
+.mail .body{{color:{TEXT};line-height:1.7;font-size:1.05rem}}
+.mail mark{{background:rgba(22,106,72,.13);color:inherit;border-bottom:2px solid {GREEN};border-radius:3px 3px 0 0;padding:0 2px}}
+.mail-cap{{font-size:.8rem;color:#5E665F;margin-top:10px}}
+.st-key-try_draft button{{border:1px solid {GREEN};color:{GREEN};background:transparent;min-height:40px;padding:0 18px;margin-top:10px}}
+.st-key-try_draft button:hover{{background:#FFFFFF;color:{GREEN_HOVER};border-color:{GREEN_HOVER}}}
 
 /* One shared editor: a single crisp 1px border, 12px corners, flat white. */
 .st-key-editor{{background:#FFFFFF;border:1px solid {BORDER};border-radius:12px;gap:0;overflow:hidden}}
@@ -211,12 +199,12 @@ def row(key, **kw):
     return st.container(key=key, horizontal=True, vertical_alignment="center", horizontal_alignment="distribute", **kw)
 
 
-# --- Header ---
+# --- Header: ClearDraft and its subtitle together on the left ---
 st.html("""<div class="topbar"><div class="mark">✎</div>
 <div><div class="name">ClearDraft</div><div class="sub">Text Rewriting &amp; Grammar Assistant</div></div></div>""")
 
-# The editor is drawn first on the page but filled in last, because it needs the values from
-# "Advanced settings", which sit below it. Streamlit containers can be filled in any order.
+# The editor is drawn first but filled in last, because it needs the values from "Advanced settings",
+# which sit below it. Streamlit containers can be filled in any order.
 editor = st.container(key="editor")
 stats_area = st.container()
 
@@ -229,80 +217,59 @@ with st.expander("Advanced settings", icon=":material/tune:"):
                             help="Low = safe, consistent edits. High = more creative, more varied.")
     max_tokens = c2.slider("Max tokens", 256, 4096, 2048, 256, help="Upper limit on the output length.")
 
-# --- Lower page: How it works, See the difference, FAQ, Back to editor ---
-# A real result from results.csv: sample #1, Formal style, prompt v2.
-PREVIEW_STYLE = "Formal"
-PREVIEW_BEFORE = _samples[1]
-PREVIEW_AFTER = ("I submitted the assignment yesterday, but it was not uploaded properly. "
-                 "Could you please check it and advise me on what I should do now?")
+# --- Below the editor: one real example, an email to a professor (saved outputs from results.csv) ---
+EMAIL_SAMPLE = 1                       # the assignment-upload draft in samples.json
+EMAIL_STYLES = ["Grammar Fix", "Formal"]
 
 
-def before_after(a, b):
-    """Word diff split in two: removed words marked in the Before text, added words in the After text."""
+def real_result(sample_id, style):
+    """The saved prompt-v2 rewrite of a sample from our evaluation run."""
+    with open("results.csv", encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            if r["id"] == str(sample_id) and r["style"] == style and r["prompt"].startswith("v2"):
+                return r["output"]
+    return ""
+
+
+def highlight_edits(a, b, n=2):
+    """The rewrite with its `n` biggest real word edits highlighted (punctuation-only edits are skipped)."""
     a_words, b_words = a.split(), b.split()
-    before, after = [], []
+    parts = []  # (text, is_real_edit)
     for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a_words, b_words).get_opcodes():
-        old, new = html.escape(" ".join(a_words[i1:i2])), html.escape(" ".join(b_words[j1:j2]))
-        before.append(old if op == "equal" or not old else f"<del>{old}</del>")
-        after.append(new if op == "equal" or not new else f"<ins>{new}</ins>")
-    return " ".join(x for x in before if x), " ".join(x for x in after if x)
+        old, new = " ".join(a_words[i1:i2]), " ".join(b_words[j1:j2])
+        if new:
+            parts.append((new, op != "equal" and old.strip(".,;:?!") != new.strip(".,;:?!")))
+    biggest = sorted((i for i, (_, edit) in enumerate(parts) if edit), key=lambda i: -len(parts[i][0]))[:n]
+    return " ".join(f"<mark>{html.escape(t)}</mark>" if i in biggest else html.escape(t) for i, (t, _) in enumerate(parts))
 
 
 def go_to_editor():
     st.session_state.scroll_to_editor = True
 
 
-def try_sample():
-    st.session_state.draft = PREVIEW_BEFORE
-    st.session_state.styles = [PREVIEW_STYLE]  # so the user's Rewrite matches the preview
+def try_example(text, style):
+    st.session_state.draft = text
+    st.session_state.styles = [style]  # so the user's Rewrite matches the example they were looking at
     go_to_editor()
 
 
-with st.container(key="lower"):
-    with st.container(key="sec_how"):
-        st.html('<div class="center"><h2 class="sec-h">How ClearDraft works</h2>'
-                '<p class="sec-p">Three steps from a rough draft to clear writing.</p></div>')
-        steps = [(":material/content_paste:", "Paste your text", "Type, paste or load an example into Original."),
-                 (":material/tune:", "Choose a style", "Pick Grammar Fix, Formal, Simple or Concise, or several."),
-                 (":material/compare_arrows:", "Compare and copy", "See every change highlighted, then copy the rewrite.")]
-        for i, (col, (icon, title, line)) in enumerate(zip(st.columns(3, gap="medium"), steps), start=1):
-            with col, st.container(key=f"how_{i}"):
-                st.markdown(icon)
-                st.html(f'<div class="step-t">{title}</div><p class="step-p">{line}</p>')
-
-    with st.container(key="sec_diff"):
-        text_col, preview_col = st.columns([1, 1.35], gap="large", vertical_alignment="center")
-        with text_col:
-            st.html(f"""<h2 class="sec-h">See the difference</h2>
-<p class="sec-p">Each style follows its own rules, so you get the version you need.</p>
-<div class="style-row"><b>Formal</b> turns casual writing into a polite, professional message.</div>
-<div class="style-row"><b>Concise</b> cuts filler and repetition but keeps every key point.</div>""")
-            st.button("Try this example", key="try_sample", on_click=try_sample, icon=":material/north_west:")
-        with preview_col:
-            b_html, a_html = before_after(PREVIEW_BEFORE, PREVIEW_AFTER)
-            st.html(f"""<div class="ba"><div><div class="tag">Before</div><div class="txt">{b_html}</div></div>
-<div><div class="tag">After · {PREVIEW_STYLE}</div><div class="txt">{a_html}</div></div></div>
-<div class="ba-cap">A real result from our tests (sample #1, Formal style, prompt v2).</div>""")
-
-    with st.container(key="sec_faq"):
-        st.html('<div class="center"><h2 class="sec-h" style="margin-bottom:20px">Questions</h2></div>')
-        with st.expander("Which style should I choose?"):
-            st.write("**Grammar Fix** only corrects mistakes. **Formal** suits emails to teachers or managers. "
-                     "**Simple** makes text easy to read. **Concise** makes it shorter. Not sure? Pick several "
-                     "and compare the tabs.")
-        with st.expander("What does Show changes highlight?"):
-            st.write("It compares the rewrite with your original word by word: removed words are red and "
-                     "crossed out, added words are green and underlined.")
-        with st.expander("Can a rewrite change my meaning?"):
-            st.write("Sometimes, yes. The prompt tells the model to keep your meaning, names and numbers, and "
-                     "Rewrite stats shows how many words were kept and whether every number survived. Always "
-                     "read the rewrite before you use it.")
-
-    with st.container(key="sec_end"), st.container(key="end_band", horizontal=True, vertical_alignment="center",
-                                                   horizontal_alignment="distribute"):
-        st.html('<div><h2 class="sec-h" style="font-size:1.35rem;margin:0">Ready to make your writing clearer?</h2>'
-                '<p class="sec-p">Your draft is still in the editor.</p></div>', width="content")
-        st.button("Back to editor", key="back_editor", on_click=go_to_editor, icon=":material/arrow_upward:")
+with st.container(key="email"):
+    left, right = st.columns([1, 1.25], gap="large", vertical_alignment="center")
+    with left:
+        st.html('<h2 class="email-h">A clearer email to your professor.</h2>'
+                '<p class="email-p">Your assignment did not upload, and the quick message you typed to your '
+                'professor is full of small mistakes.</p>')
+        email_style = st.session_state.get("email_style") or EMAIL_STYLES[0]
+        st.button("Try this draft", key="try_draft", on_click=try_example, args=(_samples[EMAIL_SAMPLE], email_style))
+    with right, st.container(key="email_panel"):
+        st.segmented_control("Example style", EMAIL_STYLES, key="email_style", default=EMAIL_STYLES[0],
+                             required=True, label_visibility="collapsed")
+        draft = _samples[EMAIL_SAMPLE]
+        email_style = st.session_state.get("email_style") or EMAIL_STYLES[0]
+        st.html(f"""<div class="mail">
+<div class="lbl">Your draft</div><div class="draft">{html.escape(draft)}</div><hr>
+<div class="lbl">{email_style} rewrite</div><div class="body">{highlight_edits(draft, real_result(EMAIL_SAMPLE, email_style))}</div>
+</div><div class="mail-cap">Saved output from our tests (sample #{EMAIL_SAMPLE}, prompt v2). Two edits are highlighted.</div>""")
 
 pending = st.session_state.get("pending", False)
 just_generated = False

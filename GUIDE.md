@@ -90,11 +90,8 @@ The key is free and needs no card.
 - **Right pane, Rewrite:** "Your rewrite will appear here." until you rewrite, then the clean rewrite. With several styles, the header shows one tab per style, always in the same order as the style row. The bottom bar has **Show changes** (switches to the tracked diff from `diff_html()`) and the active rewrite's word count and **Copy rewrite** (copies the clean text of the active tab and shows "Copied ✓"). Loading and errors (empty box, bad key, rate limit, no internet) appear in this pane, and the draft on the left is never lost.
 - **Rewrite stats** (collapsed): the four metric cards (similarity, numbers kept, reading ease, grade level), the full stats table and the generation details. It says "No numbers in original" when there's nothing to check, and warns that readability scores are rough under 30 words.
 - **Advanced settings** (collapsed): model, prompt version (v1/v2), temperature and max tokens.
-- **Lower page**, in alternating pale-green and white full-width bands:
-  - **How ClearDraft works:** three cards (Paste your text, Choose a style, Compare and copy).
-  - **See the difference:** what Formal and Concise do, plus a Before | After preview of a real test result (sample #1, Formal, prompt v2) with the changed words highlighted. **Try this example** loads that sample into Original, selects Formal and scrolls back to the editor. You still click Rewrite yourself.
-  - **Questions:** three short FAQ rows.
-  - **Back to editor:** a final band that scrolls back up and puts the cursor in Original.
+- **Header:** ClearDraft with "Text Rewriting & Grammar Assistant" underneath, on the left. There's no outer frame; the editor's own border is the main one.
+- **"A clearer email to your professor."** (the only section below the editor, ending the page): a warm ivory section with a serif heading. On the left, one sentence on the situation and **Try this draft**. On the right, a sage panel shows the assignment-upload draft (sample #1) and its **saved v2 outputs from `results.csv`**, switchable between Grammar Fix and Formal, with the two biggest edits highlighted. **Try this draft** loads the draft and the selected style into the editor and puts the cursor in Original. You still click Rewrite yourself.
 - Results are stored in `st.session_state`. Streamlit reruns the whole script on every click, so without this the rewrites would vanish as soon as anything is touched.
 - The look (off-white page, white editor with one thin border and a centre divider, Inter font, deep-green accent) comes from `.streamlit/config.toml` plus a small CSS block in `app.py`. On a phone, Original stacks above Rewrite.
 

@@ -2,7 +2,7 @@
 [theme]
 base = "light"
 font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
-headingFont = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+headingFont = "Plus Jakarta Sans:https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700;800&display=swap"
 headingFontWeights = [700, 600, 600, 600, 600, 600]
 baseFontSize = 15
 baseRadius = "12px"
