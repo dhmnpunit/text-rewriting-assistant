@@ -86,10 +86,15 @@ The key is free and needs no card.
 
 **`app.py`** is the UI. The app is branded **ClearDraft**, with "Text Rewriting & Grammar Assistant" underneath. It has one shared editor:
 - **Top row:** the four style chips (`st.pills`, pick one or more).
-- **Left pane, Original:** **Try an example** in the header (loads the next demo input from `samples.json`: #2, #1, #5, #3, #8, #7), the editable text box, and a bottom bar with the word/character count and the green **Rewrite** button.
-- **Right pane, Rewrite:** "Your rewrite will appear here." until you rewrite, then the clean rewrite. With several styles, the header shows one tab per style, always in the same order as the style row. The bottom bar has **Show changes** (switches to the tracked diff from `diff_html()`) and **Copy rewrite** (copies the clean text of the active tab and shows "Copied ✓"). Loading and errors (empty box, bad key, rate limit, no internet) appear in this pane, and the draft on the left is never lost.
+- **Left pane, Original:** **Try an example** in the header (loads the next demo input from `samples.json`: #2, #1, #5, #3, #8, #7), plus **Paste text** while the box is empty (reads the clipboard; if the browser blocks that, it asks for Ctrl/⌘+V). Then the editable text box (long drafts scroll inside it) and a bottom bar with the word/character count and the green **Rewrite** button. While the model works, the button shows a spinner and "Rewriting…" and can't be clicked twice.
+- **Right pane, Rewrite:** "Your rewrite will appear here." until you rewrite, then the clean rewrite. With several styles, the header shows one tab per style, always in the same order as the style row. The bottom bar has **Show changes** (switches to the tracked diff from `diff_html()`) and the active rewrite's word count and **Copy rewrite** (copies the clean text of the active tab and shows "Copied ✓"). Loading and errors (empty box, bad key, rate limit, no internet) appear in this pane, and the draft on the left is never lost.
 - **Rewrite stats** (collapsed): the four metric cards (similarity, numbers kept, reading ease, grade level), the full stats table and the generation details. It says "No numbers in original" when there's nothing to check, and warns that readability scores are rough under 30 words.
 - **Advanced settings** (collapsed): model, prompt version (v1/v2), temperature and max tokens.
+- **Lower page**, in alternating pale-green and white full-width bands:
+  - **How ClearDraft works:** three cards (Paste your text, Choose a style, Compare and copy).
+  - **See the difference:** what Formal and Concise do, plus a Before | After preview of a real test result (sample #1, Formal, prompt v2) with the changed words highlighted. **Try this example** loads that sample into Original, selects Formal and scrolls back to the editor. You still click Rewrite yourself.
+  - **Questions:** three short FAQ rows.
+  - **Back to editor:** a final band that scrolls back up and puts the cursor in Original.
 - Results are stored in `st.session_state`. Streamlit reruns the whole script on every click, so without this the rewrites would vanish as soon as anything is touched.
 - The look (off-white page, white editor with one thin border and a centre divider, Inter font, deep-green accent) comes from `.streamlit/config.toml` plus a small CSS block in `app.py`. On a phone, Original stacks above Rewrite.
 
