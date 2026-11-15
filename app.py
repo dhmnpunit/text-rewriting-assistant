@@ -96,7 +96,7 @@ st.markdown(f"""<style>
 /* Rewrite: the only solid red button, with hover, focus and busy states. Copy rewrite stays outlined. */
 .st-key-go button{{min-height:40px;padding:0 20px;font-weight:600}}
 .st-key-go button:hover:not(:disabled){{filter:brightness(1.12);color:#fff}}
-.st-key-go button:disabled{{background:{RED} !important;border-color:{RED} !important;color:#fff !important;opacity:.7;cursor:progress}}
+.st-key-go button:disabled{{background:{RED} !important;border-color:{RED} !important;color:#fff !important;opacity:.6;cursor:not-allowed}}
 .st-key-copy_disabled button{{min-height:40px}}
 [class*="st-key-head_"] button[kind="tertiary"]:hover{{color:{RED}}}
 button:focus-visible,[role="radio"]:focus-visible,[role="switch"]:focus-visible,summary:focus-visible{{
@@ -105,8 +105,12 @@ button:focus-visible,[role="radio"]:focus-visible,[role="switch"]:focus-visible,
 .placeholder{{height:{PANE_HEIGHT - 16}px;display:flex;align-items:center;justify-content:center;color:{MUTED};text-align:center}}
 .doc{{white-space:pre-wrap;line-height:1.7;font-size:1.02rem;color:{TEXT};padding:8px 0}}
 /* The original change colours: red = removed, green = added. */
-.doc del{{background:#ffd6d6;color:#a00;border-radius:3px;padding:0 2px}}
-.doc ins{{background:#d6ffd6;color:#060;text-decoration:none;border-radius:3px;padding:0 2px}}
+.doc del,.legend del{{background:#ffd6d6;color:#a00;border-radius:3px;padding:0 2px}}
+.doc ins,.legend ins{{background:#d6ffd6;color:#060;text-decoration:none;border-radius:3px;padding:0 2px}}
+.legend{{font-size:.8rem;color:{MUTED};padding-top:4px}}
+/* One-line stats summary under the editor, always visible after a rewrite. */
+.summary{{display:flex;flex-wrap:wrap;gap:6px 22px;font-size:.9rem;color:{MUTED};padding:12px 4px 8px}}
+.summary b{{color:{TEXT};font-weight:600}} .summary .ok{{color:#21C354}} .summary .warn{{color:{RED}}}
 </style>""", unsafe_allow_html=True)
 
 # Shared look for the two small HTML buttons below (they render outside Streamlit's widgets).
@@ -203,6 +207,10 @@ def load_example():
     st.session_state.example_i = i + 1
 
 
+def clear_text():
+    st.session_state.draft = ""
+
+
 def start_rewrite():
     # Runs before the rerun, so the button can already show "Rewriting…" while the model works.
     st.session_state.pending = True
@@ -287,13 +295,18 @@ with st.container(key="email"):
 
 pending = st.session_state.get("pending", False)
 just_generated = False
+empty_hint = pending and not st.session_state.get("draft", "").strip()
+if empty_hint:  # nothing to rewrite: show the hint in the left pane instead of calling the model
+    st.session_state.pending = pending = False
 
 with editor:
     # Top row of the editor: the four rewrite styles.
     with st.container(key="modes"):
         picked = st.pills("Rewrite styles", list(STYLES), selection_mode="multi", key="styles",
                           default=["Grammar Fix", "Formal"], label_visibility="collapsed")
-    styles = [s for s in STYLES if s in (picked or [])]  # always in picker order, whatever the click order
+        styles = [s for s in STYLES if s in (picked or [])]  # always in picker order, whatever the click order
+        if not styles:
+            st.caption(":red[Pick at least one style to rewrite.]")
 
     left, right = st.columns(2, gap=None)
 
@@ -304,37 +317,40 @@ with editor:
             with st.container(horizontal=True, width="content", vertical_alignment="center", gap="small"):
                 if not text.strip():
                     st.html(PASTE_BUTTON, width="content", unsafe_allow_javascript=True)
+                else:
+                    st.button("Clear", on_click=clear_text, type="tertiary", icon=":material/close:")
                 st.button("Try an example", on_click=load_example, type="tertiary", icon=":material/lightbulb:")
         text = st.text_area("Original", key="draft", height=PANE_HEIGHT, label_visibility="collapsed",
-                            placeholder="Paste or type the text you want to improve...")
+                            placeholder="Paste or type the text you want to improve... (Ctrl/⌘ + Enter to rewrite)")
         with row("bar_left"):
             words = len(text.split())
-            st.caption(f"{words} word{'' if words == 1 else 's'} · {len(text)} / {MAX_INPUT_CHARS} characters")
+            count = f"{words} word{'' if words == 1 else 's'} · {len(text)} / {MAX_INPUT_CHARS} characters"
+            if empty_hint:
+                st.caption(":red[Type or paste some text first, or click **Try an example**.]")
+            else:
+                st.caption(f":red[{count} · too long]" if len(text) > MAX_INPUT_CHARS else count)
             st.button("Rewriting…" if pending else "Rewrite", type="primary", key="go", on_click=start_rewrite,
-                      icon="spinner" if pending else ":material/auto_fix_high:", disabled=pending)
+                      icon="spinner" if pending else ":material/auto_fix_high:", disabled=pending or not styles,
+                      help="Shortcut: Ctrl/⌘ + Enter in the text box")
 
     with right, st.container(key="pane_right"):
         # Streamlit reruns this whole script on every click, so the last result is kept in session_state.
         if pending:
             st.session_state.pending = False
             just_generated = True
-            if not text.strip():
-                st.session_state.last = {"error": "Please enter some text first, or click **Try an example**."}
-            elif not styles:
-                st.session_state.last = {"error": "Pick at least one rewrite style at the top of the editor."}
-            else:
-                results = {}
-                for style in styles:
-                    start = time.time()
-                    try:
-                        with st.spinner(f"Rewriting ({style})…"):
-                            results[style] = {"text": rewrite(text, style, prompt, model, temperature, max_tokens)}
-                    except Exception as e:  # too long, bad key, rate limit, network
-                        results[style] = {"error": friendly_error(e)}
-                    results[style]["seconds"] = round(time.time() - start, 1)
-                st.session_state.last = {"text": text, "results": results, "model": model, "prompt": prompt,
-                                         "temperature": temperature, "max_tokens": max_tokens}
-                st.session_state.active = styles[0]
+            results = {}
+            for style in styles:
+                start = time.time()
+                try:
+                    with st.spinner(f"Rewriting ({style})…"):
+                        results[style] = {"text": rewrite(text, style, prompt, model, temperature, max_tokens)}
+                except Exception as e:  # too long, bad key, rate limit, network
+                    results[style] = {"error": friendly_error(e)}
+                results[style]["seconds"] = round(time.time() - start, 1)
+            st.session_state.last = {"text": text, "results": results, "model": model, "prompt": prompt,
+                                     "temperature": temperature, "max_tokens": max_tokens}
+            st.session_state.active = styles[0]
+            st.session_state.scroll_to_result = True
 
         last = st.session_state.get("last")
         results = (last or {}).get("results", {})
@@ -364,6 +380,8 @@ with editor:
                     st.caption(":material/info: This is the rewrite of your previous text. "
                                "Click **Rewrite** to update it.")
                 show = st.session_state.get(f"changes_{active}", False)
+                if show:
+                    st.html('<div class="legend"><del>removed</del> <ins>added</ins></div>')
                 # diff_html and html.escape both escape the text, so nothing in it can inject HTML
                 st.html(doc(diff_html(last["text"], res["text"]) if show else html.escape(res["text"])))
 
@@ -434,13 +452,44 @@ if last and "text" in res:
         # so we remember open/closed ourselves to keep it open when you switch tabs.
         st.session_state.stats_open = bool(st.session_state.get("stats_exp"))
 
-    with stats_area, st.expander(f"{active} · Rewrite stats", icon=":material/analytics:", key="stats_exp",
+    num_short = {" ok": "all kept ✓", " warn": "one changed ✗"}.get(num_cls, "none to check")
+    stats_area.html(f"""<div class="summary">
+<span><b>{sim:.0%}</b> of your words kept</span>
+<span>Numbers: <b class="{num_cls.strip()}">{num_short}</b></span>
+<span>Readability <b>{fmt(before[EASE])} → {fmt(after[EASE])}</b> ({ease_word.lower()})</span></div>""")
+
+    with stats_area, st.expander(f"{active} · All rewrite stats", icon=":material/analytics:", key="stats_exp",
                                      expanded=st.session_state.get("stats_open", False), on_change=remember_stats_open):
         st.html(f"""<div class="stats">
 <div class="st-head"><span>Your text → {html.escape(active)} rewrite</span>{stale}</div>
 {tiles}{table}
 <div class="st-foot">Made with {html.escape(last['model'])}, prompt {html.escape(last['prompt'])}, in {res['seconds']} seconds</div>
 </div>""")
+
+# Ctrl/⌘ + Enter in the text box: save the text (blur), then click Rewrite. Added once per page.
+st.html("""<script>
+if (!window.__rewriteHotkey) {
+  window.__rewriteHotkey = true;
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey)) return;
+    const box = e.target.closest && e.target.closest(".st-key-pane_left textarea");
+    const btn = document.querySelector(".st-key-go button");
+    if (!box || !btn || btn.disabled) return;
+    e.preventDefault(); e.stopPropagation();
+    box.blur();
+    setTimeout(() => btn.click(), 80);
+  }, true);
+}
+</script>""", unsafe_allow_javascript=True)
+
+# After a rewrite on a phone (panes stacked), scroll down to the result.
+if not just_generated and st.session_state.pop("scroll_to_result", False):
+    st.html(f"""<script>/* {time.time()} */
+setTimeout(() => {{
+  const pane = document.querySelector(".st-key-pane_right");
+  if (pane && window.innerWidth < 640) pane.scrollIntoView({{behavior: "smooth", block: "start"}});
+}}, 150);
+</script>""", unsafe_allow_javascript=True)
 
 # "Try this example" / "Back to editor": scroll up to the editor and put the cursor in Original.
 if st.session_state.pop("scroll_to_editor", False):
