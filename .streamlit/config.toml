@@ -1,20 +1,7 @@
-# ClearDraft look: soft off-white page, white editor, dark text, one deep-green accent, Inter font.
+# Streamlit's default dark look: dark page, red accent, default font.
+# Set explicitly so the custom CSS in app.py always matches, whatever the laptop's light/dark setting.
 [theme]
-base = "light"
-font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
-headingFont = "Plus Jakarta Sans:https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700;800&display=swap"
-headingFontWeights = [700, 600, 600, 600, 600, 600]
-baseFontSize = 15
-baseRadius = "12px"
-buttonRadius = "full"
-primaryColor = "#166A48"
-backgroundColor = "#F5F7F4"
-secondaryBackgroundColor = "#FFFFFF"
-textColor = "#202522"
-borderColor = "#D8E1DB"
-linkColor = "#166A48"
-showWidgetBorder = true
-metricValueFontSize = "1.6rem"
+base = "dark"
 
 [client]
 toolbarMode = "minimal"

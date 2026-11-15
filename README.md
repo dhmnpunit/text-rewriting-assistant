@@ -1,4 +1,4 @@
-# ClearDraft: Text Rewriting and Grammar Assistant
+# Text Rewriting and Grammar Assistant
 
 CSE2591 Generative AI for Development, Mini Project, Group 3
 Sushri Sangita Swain (2481027) · Punit (2481019) · Nisha (2481159)
@@ -32,7 +32,7 @@ python evaluate.py --out new_results.csv   # write elsewhere; results.csv is nev
 |---|---|
 | `rewriter.py` | Prompts, LLM call, comparison metrics (the core) |
 | `app.py` | Streamlit web interface |
-| `.streamlit/config.toml` | UI theme: warm-white surfaces, Inter font, deep-green accent |
+| `.streamlit/config.toml` | UI theme: Streamlit's default dark look with the red accent |
 | `evaluate.py` | Batch testing for the report (all 4 styles × 2 prompts; saves each row as it goes, retries on rate limits) |
 | `samples.json` | 8 test inputs, including tricky ones |
 | `test_rewriter.py` | Offline self-checks |

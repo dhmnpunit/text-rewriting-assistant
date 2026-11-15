@@ -1,7 +1,7 @@
 """ClearDraft, the Text Rewriting & Grammar Assistant. Run with: streamlit run app.py
 
 One shared editor: style row on top, Original on the left, Rewrite on the right, each with a bottom bar.
-Colours and the Inter font come from .streamlit/config.toml.
+Streamlit's default dark theme (.streamlit/config.toml) with its red accent; the CSS below only adds layout.
 """
 import csv
 import difflib
@@ -16,12 +16,12 @@ import streamlit as st
 from rewriter import (MAX_INPUT_CHARS, MODELS, PROMPTS, STYLES, diff_html, find_numbers, numbers_kept, rewrite,
                       similarity, text_stats)
 
-st.set_page_config(page_title="ClearDraft · Text Rewriting & Grammar Assistant", page_icon="✍️", layout="wide")
+st.set_page_config(page_title="Text Rewriting & Grammar Assistant", page_icon="✍️", layout="wide")
 
-GREEN, GREEN_HOVER, BORDER, TEXT, MUTED = "#166A48", "#0F563A", "#D8E1DB", "#202522", "#5F6862"
-IVORY, SAGE = "#FBF6EC", "#E3ECE2"  # warm example section: ivory background, sage example panel
-SERIF = "'Source Serif 4', Georgia, serif"  # serif heading for the example section only
-DISPLAY = "'Plus Jakarta Sans', Inter, sans-serif"  # heavy display font for big headings (see config.toml)
+# No solid backgrounds: the theme's own page colour shows through, and cards are see-through tints,
+# so everything matches whatever dark shade Streamlit uses. RED is the theme's accent as it renders.
+RED, BORDER, TEXT, MUTED = "#BF4D54", "rgba(250,250,250,.14)", "#FAFAFA", "rgba(250,250,250,.62)"
+SURFACE, PANEL = "rgba(250,250,250,.04)", "rgba(0,0,0,.22)"  # raised card / recessed panel
 PANE_HEIGHT = 270       # text box and rewrite area share this height; long text scrolls inside each pane
 SHORT_TEXT_WORDS = 30   # below this, readability formulas are not meaningful
 EASE = "Reading ease (0-100, higher = easier)"
@@ -31,59 +31,51 @@ _samples = {s["id"]: s["text"] for s in json.load(open("samples.json", encoding=
 EXAMPLES = [_samples[i] for i in (2, 1, 5, 3, 8, 7)]
 
 st.markdown(f"""<style>
-@import url("https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,600&display=swap");
 [data-testid="stHeader"]{{display:none}}
-[data-testid="stMainBlockContainer"]{{max-width:1168px;padding:0 24px 0}}  /* 1,120px content + 24px gutters */
-@media (max-width:640px){{[data-testid="stMainBlockContainer"]{{padding:0 16px 0}}}}
+[data-testid="stMainBlockContainer"]{{max-width:1168px;padding:2rem 24px 0}}  /* 1,120px content + 24px gutters */
+@media (max-width:640px){{[data-testid="stMainBlockContainer"]{{padding:1.5rem 16px 0}}}}
 
-/* Header: ClearDraft and its subtitle grouped on the left. */
-.topbar{{display:flex;align-items:center;gap:11px;padding:16px 0 18px}}
-.topbar .mark{{width:34px;height:34px;border-radius:9px;background:{GREEN};color:#fff;display:flex;
-  align-items:center;justify-content:center;font-size:16px;flex:none}}
-.topbar .name{{font-family:{DISPLAY};font-weight:800;font-size:1.25rem;letter-spacing:-.02em;color:{TEXT};line-height:1.1}}
-.topbar .sub{{font-size:.82rem;color:{MUTED};line-height:1.3}}
 
-/* The one example section: warm ivory, serif heading, soft sage example panel. */
-.st-key-email{{background:{IVORY};border:1px solid #EADFCB;border-radius:12px;padding:36px 36px;margin:20px 0 28px}}
+/* The one example section: a raised dark card with a darker example panel. */
+.st-key-email{{background:{SURFACE};border:1px solid {BORDER};border-radius:12px;padding:36px 36px;margin:20px 0 28px}}
 @media (max-width:640px){{.st-key-email{{padding:22px 18px}}}}
-.email-h{{font-family:{SERIF};font-weight:600;font-size:2.1rem;line-height:1.15;letter-spacing:-.01em;color:#2A2622;margin:0}}
-.email-p{{margin:14px 0 4px;font-size:1.05rem;line-height:1.65;color:#4E4840}}
+.email-h{{font-weight:700;font-size:2.1rem;line-height:1.15;color:{TEXT};margin:0;padding:0}}
+.email-p{{margin:14px 0 4px;font-size:1.05rem;line-height:1.65;color:{MUTED}}}
 @media (max-width:640px){{.email-h{{font-size:1.65rem}}}}
-.st-key-email_panel{{background:{SAGE};border-radius:12px;padding:18px 20px 16px}}
-.mail{{background:#FFFFFF;border-radius:10px;padding:18px 20px;box-shadow:0 1px 2px rgba(40,50,40,.06)}}
+.st-key-email_panel{{background:{PANEL};border-radius:12px;padding:18px 20px 16px}}
+.mail{{background:{SURFACE};border:1px solid {BORDER};border-radius:10px;padding:18px 20px}}
 .mail .lbl{{font-size:.8rem;font-weight:600;color:{MUTED};margin-bottom:6px}}
-.mail .draft{{color:#6E746F;line-height:1.65;font-size:.98rem}}
-.mail hr{{border:none;border-top:1px solid #E6E9E4;margin:14px 0}}
+.mail .draft{{color:{MUTED};line-height:1.65;font-size:.98rem}}
+.mail hr{{border:none;border-top:1px solid {BORDER};margin:14px 0}}
 .mail .body{{color:{TEXT};line-height:1.7;font-size:1.05rem}}
-.mail mark{{background:rgba(22,106,72,.13);color:inherit;border-bottom:2px solid {GREEN};border-radius:3px 3px 0 0;padding:0 2px}}
-.mail-cap{{font-size:.8rem;color:#5E665F;margin-top:10px}}
-.st-key-try_draft button{{border:1px solid {GREEN};color:{GREEN};background:transparent;min-height:40px;padding:0 18px;margin-top:10px}}
-.st-key-try_draft button:hover{{background:#FFFFFF;color:{GREEN_HOVER};border-color:{GREEN_HOVER}}}
-/* Rewrite stats: one compact panel, sage header, aligned rows, small footer. */
-.stats{{background:#FFFFFF;border:1px solid {BORDER};border-radius:10px;overflow:hidden}}
-.st-head{{background:{SAGE};padding:10px 18px;font-size:.82rem;font-weight:600;color:#3D4A41;display:flex;
+.mail mark{{background:#d6ffd6;color:#060;border-radius:3px;padding:0 2px}}
+.mail-cap{{font-size:.8rem;color:{MUTED};margin-top:10px}}
+.st-key-try_draft button{{min-height:40px;padding:0 18px;margin-top:10px}}
+/* Rewrite stats: one compact panel, raised header, aligned rows, small footer. */
+.stats{{background:transparent;border:1px solid {BORDER};border-radius:10px;overflow:hidden}}
+.st-head{{background:{SURFACE};padding:10px 18px;font-size:.82rem;font-weight:600;color:{TEXT};display:flex;
   justify-content:space-between;gap:12px;flex-wrap:wrap}}
-.st-stale{{font-weight:500;color:#6A5A2E}}
+.st-stale{{font-weight:500;color:#FACA2B}}
 .st-tiles{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:16px 18px 6px}}
 @media (max-width:640px){{.st-tiles{{grid-template-columns:1fr}}}}
-.st-tile{{border:1px solid #E6EAE5;border-radius:10px;padding:12px 14px}}
+.st-tile{{border:1px solid {BORDER};border-radius:10px;padding:12px 14px}}
 .t-lbl{{font-size:.78rem;font-weight:600;color:{MUTED}}}
 .t-val{{font-size:1.35rem;font-weight:600;color:{TEXT};margin-top:2px;font-variant-numeric:tabular-nums}}
-.t-val.ok{{color:{GREEN}}} .t-val.warn{{color:#9B2C2C}}
-.t-bar{{height:6px;background:#EEF2EE;border-radius:99px;margin:8px 0 2px;overflow:hidden}}
-.t-bar span{{display:block;height:100%;background:{GREEN};border-radius:99px}}
+.t-val.ok{{color:#21C354}} .t-val.warn{{color:{RED}}}
+.t-bar{{height:6px;background:{BORDER};border-radius:99px;margin:8px 0 2px;overflow:hidden}}
+.t-bar span{{display:block;height:100%;background:{RED};border-radius:99px}}
 .t-note{{font-size:.8rem;color:{MUTED};margin-top:4px;line-height:1.4}}
 .t-note b{{color:{TEXT};font-weight:600}}
 .st-table{{width:calc(100% - 36px);margin:10px 18px 14px;border-collapse:collapse;font-size:.9rem}}
 .st-table th{{text-align:left;font-size:.75rem;font-weight:600;color:{MUTED};padding:8px 10px;border-bottom:1px solid {BORDER}}}
-.st-table td{{padding:9px 10px;border-bottom:1px solid #EDF0EC;color:{TEXT};font-variant-numeric:tabular-nums}}
+.st-table td{{padding:9px 10px;border-bottom:1px solid {BORDER};color:{TEXT};font-variant-numeric:tabular-nums}}
 .st-table tr:last-child td{{border-bottom:none}}
 .st-table th:not(:first-child),.st-table td:not(:first-child){{text-align:right}}
 .st-table td.chg{{color:{MUTED}}}
-.st-foot{{padding:9px 18px;border-top:1px solid {BORDER};background:#FAFBF9;color:{MUTED};font-size:.78rem}}
+.st-foot{{padding:9px 18px;border-top:1px solid {BORDER};background:{PANEL};color:{MUTED};font-size:.78rem}}
 
-/* One shared editor: a single crisp 1px border, 12px corners, flat white. */
-.st-key-editor{{background:#FFFFFF;border:1px solid {BORDER};border-radius:12px;gap:0;overflow:hidden}}
+/* One shared editor: a single 1px border and 12px corners, same colour as the page. */
+.st-key-editor{{background:transparent;border:1px solid {BORDER};border-radius:12px;gap:0;overflow:hidden}}
 .st-key-modes{{padding:10px 20px;border-bottom:1px solid {BORDER}}}
 .st-key-pane_left,.st-key-pane_right{{padding:14px 20px 0}}
 .st-key-pane_right{{border-left:1px solid {BORDER}}}  /* centre divider, same colour as the border */
@@ -94,39 +86,39 @@ st.markdown(f"""<style>
   padding:12px 20px;border-top:1px solid {BORDER};min-height:65px}}
 .pane-label{{font-weight:600;font-size:.95rem;color:{TEXT};padding:6px 0}}
 
-/* The text box blends into the pane; a green ring shows keyboard focus. */
-.st-key-pane_left [data-testid="stTextAreaRootElement"]{{border-color:transparent !important;background:#FFFFFF;
+/* The text box blends into the pane (no box inside the box); a red ring shows keyboard focus. */
+.st-key-pane_left [data-testid="stTextAreaRootElement"]{{border-color:transparent !important;background:transparent;
   border-radius:8px}}
 .st-key-pane_left [data-testid="stTextAreaRootElement"]:focus-within{{border-color:transparent !important;
-  box-shadow:none;outline:2px solid {GREEN};outline-offset:-2px}}
-.st-key-pane_left textarea{{font-size:1.02rem;line-height:1.7;background:#FFFFFF;padding-left:10px;padding-right:10px}}
+  box-shadow:none;outline:2px solid {RED};outline-offset:-2px}}
+.st-key-pane_left textarea{{font-size:1.02rem;line-height:1.7;background:transparent;padding-left:10px;padding-right:10px}}
 
-/* Rewrite: the only solid green button, with hover, focus and busy states. Copy rewrite stays outlined. */
+/* Rewrite: the only solid red button, with hover, focus and busy states. Copy rewrite stays outlined. */
 .st-key-go button{{min-height:40px;padding:0 20px;font-weight:600}}
-.st-key-go button:hover:not(:disabled){{background:{GREEN_HOVER};border-color:{GREEN_HOVER};color:#fff}}
-.st-key-go button:disabled{{background:#4C8C70 !important;border-color:#4C8C70 !important;color:#fff !important;cursor:progress}}
+.st-key-go button:hover:not(:disabled){{filter:brightness(1.12);color:#fff}}
+.st-key-go button:disabled{{background:{RED} !important;border-color:{RED} !important;color:#fff !important;opacity:.7;cursor:progress}}
 .st-key-copy_disabled button{{min-height:40px}}
-[class*="st-key-head_"] button[kind="tertiary"]:hover{{color:{GREEN}}}
+[class*="st-key-head_"] button[kind="tertiary"]:hover{{color:{RED}}}
 button:focus-visible,[role="radio"]:focus-visible,[role="switch"]:focus-visible,summary:focus-visible{{
-  outline:2px solid {GREEN} !important;outline-offset:2px}}
+  outline:2px solid {RED} !important;outline-offset:2px}}
 
-.placeholder{{height:{PANE_HEIGHT - 16}px;display:flex;align-items:center;justify-content:center;color:#8C948F;text-align:center}}
+.placeholder{{height:{PANE_HEIGHT - 16}px;display:flex;align-items:center;justify-content:center;color:{MUTED};text-align:center}}
 .doc{{white-space:pre-wrap;line-height:1.7;font-size:1.02rem;color:{TEXT};padding:8px 0}}
-.doc del{{background:rgba(190,48,48,.10);color:#9B2C2C;text-decoration:line-through;border-radius:3px;padding:0 2px}}
-.doc ins{{background:rgba(22,106,72,.12);color:inherit;text-decoration:none;border-bottom:2px solid {GREEN};
-  border-radius:3px 3px 0 0;padding:0 2px}}
+/* The original change colours: red = removed, green = added. */
+.doc del{{background:#ffd6d6;color:#a00;border-radius:3px;padding:0 2px}}
+.doc ins{{background:#d6ffd6;color:#060;text-decoration:none;border-radius:3px;padding:0 2px}}
 </style>""", unsafe_allow_html=True)
 
 # Shared look for the two small HTML buttons below (they render outside Streamlit's widgets).
 BUTTON_CSS = f"""<style>
-.cd-btn{{font:inherit;font-size:.88rem;font-weight:500;color:{TEXT};background:#fff;border:1px solid {BORDER};
-  border-radius:999px;min-height:40px;padding:0 16px;cursor:pointer;white-space:nowrap;display:inline-flex;
+.cd-btn{{font:inherit;font-size:.88rem;font-weight:500;color:{TEXT};background:transparent;border:1px solid {BORDER};
+  border-radius:8px;min-height:40px;padding:0 16px;cursor:pointer;white-space:nowrap;display:inline-flex;
   align-items:center;gap:6px}}
-.cd-btn:hover{{background:#F1F6F3;border-color:#BFCDC4}}
-.cd-btn:focus-visible{{outline:2px solid {GREEN};outline-offset:2px}}
-.cd-btn.done{{color:{GREEN};border-color:{GREEN}}}
+.cd-btn:hover{{color:{RED};border-color:{RED}}}
+.cd-btn:focus-visible{{outline:2px solid {RED};outline-offset:2px}}
+.cd-btn.done{{color:#21C354;border-color:#21C354}}
 .cd-link{{border:none;background:none;min-height:32px;padding:0 4px}}
-.cd-link:hover{{background:none;color:{GREEN}}}
+.cd-link:hover{{background:none;color:{RED}}}
 </style>"""
 
 
@@ -221,9 +213,9 @@ def row(key, **kw):
     return st.container(key=key, horizontal=True, vertical_alignment="center", horizontal_alignment="distribute", **kw)
 
 
-# --- Header: ClearDraft and its subtitle together on the left ---
-st.html("""<div class="topbar"><div class="mark">✎</div>
-<div><div class="name">ClearDraft</div><div class="sub">Text Rewriting &amp; Grammar Assistant</div></div></div>""")
+# --- Header: title and the AI warning ---
+st.title("✍️ Text Rewriting & Grammar Assistant")
+st.caption("AI suggestions can be wrong. Always read the rewrite and check that the meaning is unchanged.")
 
 # The editor is drawn first but filled in last, because it needs the values from "Advanced settings",
 # which sit below it. Streamlit containers can be filled in any order.
