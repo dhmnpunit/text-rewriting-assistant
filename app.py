@@ -10,6 +10,7 @@ import html
 import json
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import streamlit as st
 
@@ -94,7 +95,8 @@ st.markdown(f"""<style>
 .st-key-pane_left textarea{{font-size:1.02rem;line-height:1.7;background:transparent;padding-left:10px;padding-right:10px}}
 
 /* Rewrite: the only solid red button, with hover, focus and busy states. Copy rewrite stays outlined. */
-.st-key-go button{{min-height:40px;padding:0 20px;font-weight:600}}
+.st-key-go button,.st-key-go_busy button{{min-height:40px;padding:0 20px;font-weight:600}}
+.st-key-go_busy button:disabled{{background:{RED} !important;border-color:{RED} !important;color:#fff !important;opacity:.8;cursor:progress}}
 .st-key-go button:hover:not(:disabled){{filter:brightness(1.12);color:#fff}}
 .st-key-go button:disabled{{background:{RED} !important;border-color:{RED} !important;color:#fff !important;opacity:.6;cursor:not-allowed}}
 .st-key-copy_disabled button{{min-height:40px}}
@@ -216,6 +218,11 @@ def start_rewrite():
     st.session_state.pending = True
 
 
+def go_button(slot, styles):
+    slot.button("Rewrite", type="primary", key="go", on_click=start_rewrite, icon=":material/auto_fix_high:",
+                disabled=not styles, help="Shortcut: Ctrl/⌘ + Enter in the text box")
+
+
 def row(key, **kw):
     """A horizontal row: items spread to both ends, vertically centred."""
     return st.container(key=key, horizontal=True, vertical_alignment="center", horizontal_alignment="distribute", **kw)
@@ -227,8 +234,7 @@ st.caption("AI suggestions can be wrong. Always read the rewrite and check that 
 
 # The editor is drawn first but filled in last, because it needs the values from "Advanced settings",
 # which sit below it. Streamlit containers can be filled in any order.
-editor = st.container(key="editor")
-stats_area = st.container()
+workspace = st.container()
 
 with st.expander("Advanced settings", icon=":material/tune:"):
     c1, c2 = st.columns(2, gap="large")
@@ -293,178 +299,206 @@ with st.container(key="email"):
 <div class="lbl">{email_style} rewrite</div><div class="body">{highlight_edits(draft, real_result(EMAIL_SAMPLE, email_style))}</div>
 </div><div class="mail-cap">Saved output from our tests (sample #{EMAIL_SAMPLE}, prompt v2). Two edits are highlighted.</div>""")
 
-pending = st.session_state.get("pending", False)
-just_generated = False
-empty_hint = pending and not st.session_state.get("draft", "").strip()
-if empty_hint:  # nothing to rewrite: show the hint in the left pane instead of calling the model
-    st.session_state.pending = pending = False
+@st.fragment
+def editor_and_stats(model, prompt, temperature, max_tokens):
+    """The editor plus its stats. As a fragment, clicks inside it (tabs, toggles, Rewrite) rerun only this
+    part instead of the whole page, which keeps switching between rewrites fast."""
+    pending = st.session_state.get("pending", False)
+    just_generated = False
+    empty_hint = pending and not st.session_state.get("draft", "").strip()
+    if empty_hint:  # nothing to rewrite: show the hint in the left pane instead of calling the model
+        st.session_state.pending = pending = False
 
-with editor:
-    # Top row of the editor: the four rewrite styles.
-    with st.container(key="modes"):
-        picked = st.pills("Rewrite styles", list(STYLES), selection_mode="multi", key="styles",
-                          default=["Grammar Fix", "Formal"], label_visibility="collapsed")
-        styles = [s for s in STYLES if s in (picked or [])]  # always in picker order, whatever the click order
-        if not styles:
-            st.caption(":red[Pick at least one style to rewrite.]")
+    editor = st.container(key="editor")
+    stats_area = st.container()
 
-    left, right = st.columns(2, gap=None)
+    with editor:
+        # Top row of the editor: the four rewrite styles.
+        with st.container(key="modes"):
+            picked = st.pills("Rewrite styles", list(STYLES), selection_mode="multi", key="styles",
+                              default=["Grammar Fix", "Formal"], label_visibility="collapsed")
+            styles = [s for s in STYLES if s in (picked or [])]  # always in picker order, whatever the click order
+            if not styles:
+                st.caption(":red[Pick at least one style to rewrite.]")
 
-    with left, st.container(key="pane_left"):
-        text = st.session_state.get("draft", "")
-        with row("head_left"):
-            st.html('<div class="pane-label">Original</div>', width="content")
-            with st.container(horizontal=True, width="content", vertical_alignment="center", gap="small"):
-                if not text.strip():
-                    st.html(PASTE_BUTTON, width="content", unsafe_allow_javascript=True)
+        left, right = st.columns(2, gap=None)
+
+        with left, st.container(key="pane_left"):
+            text = st.session_state.get("draft", "")
+            with row("head_left"):
+                st.html('<div class="pane-label">Original</div>', width="content")
+                with st.container(horizontal=True, width="content", vertical_alignment="center", gap="small"):
+                    if not text.strip():
+                        st.html(PASTE_BUTTON, width="content", unsafe_allow_javascript=True)
+                    else:
+                        st.button("Clear", on_click=clear_text, type="tertiary", icon=":material/close:")
+                    st.button("Try an example", on_click=load_example, type="tertiary", icon=":material/lightbulb:")
+            text = st.text_area("Original", key="draft", height=PANE_HEIGHT, label_visibility="collapsed",
+                                placeholder="Paste or type the text you want to improve... (Ctrl/⌘ + Enter to rewrite)")
+            with row("bar_left"):
+                words = len(text.split())
+                count = f"{words} word{'' if words == 1 else 's'} · {len(text)} / {MAX_INPUT_CHARS} characters"
+                if empty_hint:
+                    st.caption(":red[Type or paste some text first, or click **Try an example**.]")
                 else:
-                    st.button("Clear", on_click=clear_text, type="tertiary", icon=":material/close:")
-                st.button("Try an example", on_click=load_example, type="tertiary", icon=":material/lightbulb:")
-        text = st.text_area("Original", key="draft", height=PANE_HEIGHT, label_visibility="collapsed",
-                            placeholder="Paste or type the text you want to improve... (Ctrl/⌘ + Enter to rewrite)")
-        with row("bar_left"):
-            words = len(text.split())
-            count = f"{words} word{'' if words == 1 else 's'} · {len(text)} / {MAX_INPUT_CHARS} characters"
-            if empty_hint:
-                st.caption(":red[Type or paste some text first, or click **Try an example**.]")
-            else:
-                st.caption(f":red[{count} · too long]" if len(text) > MAX_INPUT_CHARS else count)
-            st.button("Rewriting…" if pending else "Rewrite", type="primary", key="go", on_click=start_rewrite,
-                      icon="spinner" if pending else ":material/auto_fix_high:", disabled=pending or not styles,
-                      help="Shortcut: Ctrl/⌘ + Enter in the text box")
-
-    with right, st.container(key="pane_right"):
-        # Streamlit reruns this whole script on every click, so the last result is kept in session_state.
-        if pending:
-            st.session_state.pending = False
-            just_generated = True
-            results = {}
-            for style in styles:
-                start = time.time()
-                try:
-                    with st.spinner(f"Rewriting ({style})…"):
-                        results[style] = {"text": rewrite(text, style, prompt, model, temperature, max_tokens)}
-                except Exception as e:  # too long, bad key, rate limit, network
-                    results[style] = {"error": friendly_error(e)}
-                results[style]["seconds"] = round(time.time() - start, 1)
-            st.session_state.last = {"text": text, "results": results, "model": model, "prompt": prompt,
-                                     "temperature": temperature, "max_tokens": max_tokens}
-            st.session_state.active = styles[0]
-            st.session_state.scroll_to_result = True
-
-        last = st.session_state.get("last")
-        results = (last or {}).get("results", {})
-
-        # Header: "Rewrite" plus one tab per generated style, aligned with the "Original" header.
-        with row("head_right"):
-            st.html('<div class="pane-label">Rewrite</div>', width="content")
-            if len(results) > 1:
-                if st.session_state.get("active") not in results:
-                    st.session_state.active = next(iter(results))
-                st.segmented_control("Result tabs", list(results), key="active", label_visibility="collapsed",
-                                     required=True)
-        active = st.session_state.get("active") if len(results) > 1 else next(iter(results), None)
-        res = results.get(active, {})
-
-        with st.container(height=PANE_HEIGHT, border=False):
-            if not last:
-                st.html('<div class="placeholder">Your rewrite will appear here.</div>')
-            elif "error" in last:
-                st.error(last["error"], icon=":material/error:")
-                st.caption("Your draft is kept.")
-            elif "error" in res:
-                st.error(f"{active}: {res['error']}", icon=":material/error:")
-                st.caption("Your draft is kept. Try again.")
-            else:
-                if last["text"] != text:
-                    st.caption(":material/info: This is the rewrite of your previous text. "
-                               "Click **Rewrite** to update it.")
-                show = st.session_state.get(f"changes_{active}", False)
-                if show:
-                    st.html('<div class="legend"><del>removed</del> <ins>added</ins></div>')
-                # diff_html and html.escape both escape the text, so nothing in it can inject HTML
-                st.html(doc(diff_html(last["text"], res["text"]) if show else html.escape(res["text"])))
-
-        # Bottom bar: Show changes on the left; word count and Copy rewrite on the right.
-        with row("bar_right"):
-            ready = "text" in res
-            st.toggle("Show changes", key=f"changes_{active}" if ready else "changes_none", disabled=not ready,
-                      help="Red = removed, green = added")
-            with st.container(horizontal=True, width="content", vertical_alignment="center", gap="small"):
-                if ready:
-                    n = len(res["text"].split())
-                    st.caption(f"{n} word{'' if n == 1 else 's'}")
-                    uid = hashlib.md5(f"{active}{res['text']}".encode()).hexdigest()[:10]
-                    st.html(copy_button(res["text"], uid), width="content", unsafe_allow_javascript=True)
+                    st.caption(f":red[{count} · too long]" if len(text) > MAX_INPUT_CHARS else count)
+                go_slot = st.empty()  # holds "Rewriting…" while the model works, then the real button
+                if pending:
+                    go_slot.button("Rewriting…", type="primary", key="go_busy", icon="spinner", disabled=True)
                 else:
-                    st.button("Copy rewrite", disabled=True, key="copy_disabled")
+                    go_button(go_slot, styles)
 
-    if not os.getenv("GROQ_API_KEY"):
-        st.error("GROQ_API_KEY not found. Copy .env.example to .env and paste your key from console.groq.com.")
+        with right, st.container(key="pane_right"):
+            # Streamlit reruns this whole script on every click, so the last result is kept in session_state.
+            if pending:
+                st.session_state.pending = False
+                just_generated = True
 
-# --- Rewrite stats: one compact panel for the result showing in the editor (collapsed) ---
-# `active` and `res` come from the Rewrite pane above, so the stats always follow the visible tab.
-if last and "text" in res:
-    original, result = last["text"], res["text"]
-    before, after = text_stats(original), text_stats(result)
+                def one(style):  # runs in a worker thread, so no st.* calls in here
+                    start = time.time()
+                    try:
+                        out = {"text": rewrite(text, style, prompt, model, temperature, max_tokens)}
+                    except Exception as e:  # too long, bad key, rate limit, network
+                        out = {"error": friendly_error(e)}
+                    out["seconds"] = round(time.time() - start, 1)
+                    return out
 
-    def fmt(x):
-        return f"{x:g}"
+                # All styles at once: total wait = the slowest style, not the sum of all of them.
+                label = f"Rewriting {len(styles)} styles…" if len(styles) > 1 else f"Rewriting ({styles[0]})…"
+                with st.spinner(label), ThreadPoolExecutor(max_workers=len(styles)) as pool:
+                    results = dict(zip(styles, pool.map(one, styles)))
+                st.session_state.last = {"text": text, "results": results, "model": model, "prompt": prompt,
+                                         "temperature": temperature, "max_tokens": max_tokens}
+                st.session_state.active = styles[0]
+                go_button(go_slot, styles)  # swap "Rewriting…" back to "Rewrite" in this same run
 
-    def change(a, b):
-        d = round(b - a, 1)
-        return "0" if d == 0 else f"{d:+g}"
+            last = st.session_state.get("last")
+            results = (last or {}).get("results", {})
 
-    # Summary tiles: how much wording was kept, whether numbers survived, readability.
-    sim = similarity(original, result)
-    sim_note = ("The AI rewrote most of it, so read it carefully." if sim < 0.4 else
-                "A mix of your words and new ones." if sim < 0.75 else "Mostly your own words.")
-    if not find_numbers(original):
-        num_val, num_note, num_cls = "None to check", "Your text has no numbers, dates or times.", ""
-    elif numbers_kept(original, result):
-        num_val, num_note, num_cls = "All kept ✓", "Every number, date and time is still there.", " ok"
-    else:
-        num_val, num_note, num_cls = "One changed ✗", "A number, date or time is different. Check it.", " warn"
-    d = after[EASE] - before[EASE]
-    ease_word = "Easier" if d >= 5 else "Harder" if d <= -5 else "About the same"
-    short = min(before["Words"], after["Words"]) < SHORT_TEXT_WORDS
-    ease_note = ("Rough estimate: the text is under 30 words." if short else "Reading-ease score, out of 100. Higher is easier.")
-    tiles = f"""<div class="st-tiles">
-<div class="st-tile"><div class="t-lbl">Your words kept</div><div class="t-val">{sim:.0%}</div>
-  <div class="t-bar"><span style="width:{sim * 100:.0f}%"></span></div><div class="t-note">{sim_note}</div></div>
-<div class="st-tile"><div class="t-lbl">Numbers</div><div class="t-val{num_cls}">{num_val}</div><div class="t-note">{num_note}</div></div>
-<div class="st-tile"><div class="t-lbl">Readability</div><div class="t-val">{fmt(before[EASE])} → {fmt(after[EASE])}</div>
-  <div class="t-note"><b>{ease_word}.</b> {ease_note}</div></div>
-</div>"""
+            # Header: "Rewrite" plus one tab per generated style, aligned with the "Original" header.
+            with row("head_right"):
+                st.html('<div class="pane-label">Rewrite</div>', width="content")
+                if len(results) > 1:
+                    if st.session_state.get("active") not in results:
+                        st.session_state.active = next(iter(results))
+                    st.segmented_control("Result tabs", list(results), key="active", label_visibility="collapsed",
+                                         required=True)
+            active = st.session_state.get("active") if len(results) > 1 else next(iter(results), None)
+            res = results.get(active, {})
 
-    # Comparison table: Your text | Rewrite | Change.
-    measures = [("Words", before["Words"], after["Words"]),
-                ("Sentences", before["Sentences"], after["Sentences"]),
-                ("Words per sentence", before["Avg words / sentence"], after["Avg words / sentence"]),
-                ("Reading ease (0–100)", before[EASE], after[EASE])]
-    table = ('<table class="st-table"><thead><tr><th>Measure</th><th>Your text</th><th>Rewrite</th><th>Change</th></tr></thead><tbody>'
-             + "".join(f"<tr><td>{m}</td><td>{fmt(x)}</td><td>{fmt(y)}</td><td class='chg'>{change(x, y)}</td></tr>"
-                       for m, x, y in measures) + "</tbody></table>")
-    stale = ('<span class="st-stale">Based on your last rewrite.</span>' if original != text else "")
+            with st.container(height=PANE_HEIGHT, border=False):
+                if not last:
+                    st.html('<div class="placeholder">Your rewrite will appear here.</div>')
+                elif "error" in last:
+                    st.error(last["error"], icon=":material/error:")
+                    st.caption("Your draft is kept.")
+                elif "error" in res:
+                    st.error(f"{active}: {res['error']}", icon=":material/error:")
+                    st.caption("Your draft is kept. Try again.")
+                else:
+                    if last["text"] != text:
+                        st.caption(":material/info: This is the rewrite of your previous text. "
+                                   "Click **Rewrite** to update it.")
+                    show = st.session_state.get(f"changes_{active}", False)
+                    if show:
+                        st.html('<div class="legend"><del>removed</del> <ins>added</ins></div>')
+                    # diff_html and html.escape both escape the text, so nothing in it can inject HTML
+                    st.html(doc(diff_html(last["text"], res["text"]) if show else html.escape(res["text"])))
 
-    def remember_stats_open():
-        # The heading changes with the style, which Streamlit treats as a new accordion,
-        # so we remember open/closed ourselves to keep it open when you switch tabs.
-        st.session_state.stats_open = bool(st.session_state.get("stats_exp"))
+            # Bottom bar: Show changes on the left; word count and Copy rewrite on the right.
+            with row("bar_right"):
+                ready = "text" in res
+                st.toggle("Show changes", key=f"changes_{active}" if ready else "changes_none", disabled=not ready,
+                          help="Red = removed, green = added")
+                with st.container(horizontal=True, width="content", vertical_alignment="center", gap="small"):
+                    if ready:
+                        n = len(res["text"].split())
+                        st.caption(f"{n} word{'' if n == 1 else 's'}")
+                        uid = hashlib.md5(f"{active}{res['text']}".encode()).hexdigest()[:10]
+                        st.html(copy_button(res["text"], uid), width="content", unsafe_allow_javascript=True)
+                    else:
+                        st.button("Copy rewrite", disabled=True, key="copy_disabled")
 
-    num_short = {" ok": "all kept ✓", " warn": "one changed ✗"}.get(num_cls, "none to check")
-    stats_area.html(f"""<div class="summary">
-<span><b>{sim:.0%}</b> of your words kept</span>
-<span>Numbers: <b class="{num_cls.strip()}">{num_short}</b></span>
-<span>Readability <b>{fmt(before[EASE])} → {fmt(after[EASE])}</b> ({ease_word.lower()})</span></div>""")
+        if not os.getenv("GROQ_API_KEY"):
+            st.error("GROQ_API_KEY not found. Copy .env.example to .env and paste your key from console.groq.com.")
 
-    with stats_area, st.expander(f"{active} · All rewrite stats", icon=":material/analytics:", key="stats_exp",
-                                     expanded=st.session_state.get("stats_open", False), on_change=remember_stats_open):
-        st.html(f"""<div class="stats">
-<div class="st-head"><span>Your text → {html.escape(active)} rewrite</span>{stale}</div>
-{tiles}{table}
-<div class="st-foot">Made with {html.escape(last['model'])}, prompt {html.escape(last['prompt'])}, in {res['seconds']} seconds</div>
-</div>""")
+    # --- Rewrite stats: one compact panel for the result showing in the editor (collapsed) ---
+    # `active` and `res` come from the Rewrite pane above, so the stats always follow the visible tab.
+    if last and "text" in res:
+        original, result = last["text"], res["text"]
+        before, after = text_stats(original), text_stats(result)
+
+        def fmt(x):
+            return f"{x:g}"
+
+        def change(a, b):
+            d = round(b - a, 1)
+            return "0" if d == 0 else f"{d:+g}"
+
+        # Summary tiles: how much wording was kept, whether numbers survived, readability.
+        sim = similarity(original, result)
+        sim_note = ("The AI rewrote most of it, so read it carefully." if sim < 0.4 else
+                    "A mix of your words and new ones." if sim < 0.75 else "Mostly your own words.")
+        if not find_numbers(original):
+            num_val, num_note, num_cls = "None to check", "Your text has no numbers, dates or times.", ""
+        elif numbers_kept(original, result):
+            num_val, num_note, num_cls = "All kept ✓", "Every number, date and time is still there.", " ok"
+        else:
+            num_val, num_note, num_cls = "One changed ✗", "A number, date or time is different. Check it.", " warn"
+        d = after[EASE] - before[EASE]
+        ease_word = "Easier" if d >= 5 else "Harder" if d <= -5 else "About the same"
+        short = min(before["Words"], after["Words"]) < SHORT_TEXT_WORDS
+        ease_note = ("Rough estimate: the text is under 30 words." if short else "Reading-ease score, out of 100. Higher is easier.")
+        tiles = f"""<div class="st-tiles">
+    <div class="st-tile"><div class="t-lbl">Your words kept</div><div class="t-val">{sim:.0%}</div>
+      <div class="t-bar"><span style="width:{sim * 100:.0f}%"></span></div><div class="t-note">{sim_note}</div></div>
+    <div class="st-tile"><div class="t-lbl">Numbers</div><div class="t-val{num_cls}">{num_val}</div><div class="t-note">{num_note}</div></div>
+    <div class="st-tile"><div class="t-lbl">Readability</div><div class="t-val">{fmt(before[EASE])} → {fmt(after[EASE])}</div>
+      <div class="t-note"><b>{ease_word}.</b> {ease_note}</div></div>
+    </div>"""
+
+        # Comparison table: Your text | Rewrite | Change.
+        measures = [("Words", before["Words"], after["Words"]),
+                    ("Sentences", before["Sentences"], after["Sentences"]),
+                    ("Words per sentence", before["Avg words / sentence"], after["Avg words / sentence"]),
+                    ("Reading ease (0–100)", before[EASE], after[EASE])]
+        table = ('<table class="st-table"><thead><tr><th>Measure</th><th>Your text</th><th>Rewrite</th><th>Change</th></tr></thead><tbody>'
+                 + "".join(f"<tr><td>{m}</td><td>{fmt(x)}</td><td>{fmt(y)}</td><td class='chg'>{change(x, y)}</td></tr>"
+                           for m, x, y in measures) + "</tbody></table>")
+        stale = ('<span class="st-stale">Based on your last rewrite.</span>' if original != text else "")
+
+        def remember_stats_open():
+            # The heading changes with the style, which Streamlit treats as a new accordion,
+            # so we remember open/closed ourselves to keep it open when you switch tabs.
+            st.session_state.stats_open = bool(st.session_state.get("stats_exp"))
+
+        num_short = {" ok": "all kept ✓", " warn": "one changed ✗"}.get(num_cls, "none to check")
+        stats_area.html(f"""<div class="summary">
+    <span><b>{sim:.0%}</b> of your words kept</span>
+    <span>Numbers: <b class="{num_cls.strip()}">{num_short}</b></span>
+    <span>Readability <b>{fmt(before[EASE])} → {fmt(after[EASE])}</b> ({ease_word.lower()})</span></div>""")
+
+        with stats_area, st.expander(f"{active} · All rewrite stats", icon=":material/analytics:", key="stats_exp",
+                                         expanded=st.session_state.get("stats_open", False), on_change=remember_stats_open):
+            st.html(f"""<div class="stats">
+    <div class="st-head"><span>Your text → {html.escape(active)} rewrite</span>{stale}</div>
+    {tiles}{table}
+    <div class="st-foot">Made with {html.escape(last['model'])}, prompt {html.escape(last['prompt'])}, in {res['seconds']} seconds</div>
+    </div>""")
+
+    # After a rewrite on a phone (panes stacked), scroll down to the result.
+    if just_generated:
+        st.html(f"""<script>/* {time.time()} */
+setTimeout(() => {{
+  const pane = document.querySelector(".st-key-pane_right");
+  if (pane && window.innerWidth < 640) pane.scrollIntoView({{behavior: "smooth", block: "start"}});
+}}, 150);
+</script>""", unsafe_allow_javascript=True)
+
+
+with workspace:
+    editor_and_stats(model, prompt, temperature, max_tokens)
+
 
 # Ctrl/⌘ + Enter in the text box: save the text (blur), then click Rewrite. Added once per page.
 st.html("""<script>
@@ -482,15 +516,6 @@ if (!window.__rewriteHotkey) {
 }
 </script>""", unsafe_allow_javascript=True)
 
-# After a rewrite on a phone (panes stacked), scroll down to the result.
-if not just_generated and st.session_state.pop("scroll_to_result", False):
-    st.html(f"""<script>/* {time.time()} */
-setTimeout(() => {{
-  const pane = document.querySelector(".st-key-pane_right");
-  if (pane && window.innerWidth < 640) pane.scrollIntoView({{behavior: "smooth", block: "start"}});
-}}, 150);
-</script>""", unsafe_allow_javascript=True)
-
 # "Try this example" / "Back to editor": scroll up to the editor and put the cursor in Original.
 if st.session_state.pop("scroll_to_editor", False):
     st.html(f"""<script>/* {time.time()} */
@@ -501,7 +526,3 @@ setTimeout(() => {{
   if (box) box.focus({{preventScroll: true}});
 }}, 150);
 </script>""", unsafe_allow_javascript=True)
-
-# After generating, rerun once so the button switches back from "Rewriting…" to "Rewrite".
-if just_generated:
-    st.rerun()
